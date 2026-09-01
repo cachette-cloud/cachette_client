@@ -352,7 +352,7 @@ export default function Hero({
                         </motion.p>
 
                         {/* CTA Buttons */}
-                        <div className="flex flex-col xs:flex-row items-stretch xs:items-center gap-3 sm:gap-4 md:gap-5 w-full sm:w-auto">
+                        <div className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2.5 sm:gap-3.5 w-full sm:w-auto">
                             <motion.div
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
@@ -361,7 +361,7 @@ export default function Hero({
                             >
                                 <Link
                                     href={primaryCtaHref}
-                                    className="relative block w-full xs:w-auto text-center bg-white text-[#0a0a0a] rounded-full px-6 sm:px-7 py-3 text-[13px] sm:text-[14px] font-semibold overflow-hidden group/btn"
+                                    className="relative block w-full xs:w-auto text-center bg-white text-[#0a0a0a] rounded-full px-4 sm:px-5 py-2 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold overflow-hidden group/btn"
                                 >
                                     <span className="absolute inset-0 bg-[#0a0a0a] translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 ease-out rounded-full" />
                                     <span className="relative z-10 group-hover/btn:text-white transition-colors duration-300">
@@ -372,12 +372,12 @@ export default function Hero({
 
                             <motion.a
                                 href={secondaryCtaHref}
-                                className="flex items-center justify-center gap-2.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white rounded-full px-5 sm:px-6 py-3 text-[13px] sm:text-[14px] font-medium transition-all duration-300 w-full xs:w-auto"
+                                className="flex items-center justify-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white rounded-full px-4 sm:px-5 py-2 sm:py-2.5 text-[12px] sm:text-[13px] font-medium transition-all duration-300 w-full xs:w-auto"
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.7, delay: 1.7 }}
-                                whileHover={{ scale: 1.03 }}
-                                whileTap={{ scale: 0.97 }}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
                             >
                                 {secondaryCtaLabel}
                             </motion.a>

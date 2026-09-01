@@ -1,8 +1,10 @@
+from app import dependencies
 from sqlalchemy import SelectLabelStyle
 from sqlalchemy import select
 import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Depends, HTTPException, Query, UploadFile, File as FastAPIFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -58,11 +60,10 @@ async def initiate_upload(
     await db.commit()
 
     if body.size < settings.MULTIPART_THRESHOLD:
-        put_url = await s3.generate_put_url(key=key, content_type=body.content_type)
+        # put_url = await s3.generate_put_url(key=key, content_type=body.content_type)
         return UploadInitiateResponse(
             file_id = file_id,
-            upload_mode = "single",
-            put_url = put_url
+            upload_mode = "single"
         )
     else:
         upload_id = await s3.create_multipart_upload(key=key, content_type=body.content_type)
@@ -71,6 +72,58 @@ async def initiate_upload(
             upload_mode = "multipart",
             upload_id = upload_id
         )
+    
+@router.post("/{file_id}/upload", dependencies=[Depends(rate_limit_user(general_limiter))])
+async def upload_single(
+    file_id: uuid.UUID,
+    file: UploadFile,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    s3: s3_service = Depends(get_s3_service)
+):
+    file_row = await db.get(File, file_id)
+
+    if not file_row or file_row.owner_id != current_user.id:
+        raise HTTPException(404, "file not found")
+    if file_row.status != "uploading":
+        raise HTTPException(400, "upload not in progress")
+    if file_row.size > current_user.storage_quota_bytes - current_user.storage_used:
+        await s3.delete_object(key=file_row.s3_key)
+        await db.delete(file_row)
+        await db.commit()
+        raise HTTPException(413, "File size exceeds maximum allowed size")
+    
+    data = await file.read()
+    await s3.put_object_bytes(key=file_row.s3_key, content_type=file_row.content_type, body=data)
+
+    file_row.status = "active"
+    await db.commit()
+
+    return {"status": "uploaded"}
+
+@router.put("/uploads/{file_id}/part", dependencies=[Depends(rate_limit_user(general_limiter))])
+async def upload_part(
+    file_id: uuid.UUID,
+    part_number: int,
+    part: UploadFile,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    s3: s3_service = Depends(get_s3_service)
+):
+    file_row = await db.get(File, file_id)
+
+    if not file_row or file_row.owner_id != current_user.id:
+        raise HTTPException(404, "file not found")
+    if file_row.status != "uploading":
+        raise HTTPException(400, "upload not in progress")
+
+    data = await part.read()
+    etag = await s3.upload_part_bytes(
+        file_row.s3_key, file_row.upload_id, part_number, data
+    )
+
+    return {"part_number": part_number, "etag": etag}
+
 
 @router.post("/uploads/{file_id}/part-url", dependencies = [Depends(rate_limit_user(general_limiter))])
 async def get_part_url(
@@ -113,6 +166,10 @@ async def complete_upload(
             file_row.upload_id,
             [{"PartNumber": p.part_number, "ETag": p.etag} for p in body.parts]
         )
+    else:
+       exists = await s3.object_exists(key=file_row.s3_key)
+       if not exists:
+           raise HTTPException(400, "File was not uploaded")
 
     if current_user.storage_used + file_row.size > current_user.storage_quota_bytes:
         await s3.delete_object(key=file_row.s3_key)
@@ -161,6 +218,8 @@ async def delete_file(
     await db.commit()
     return {"status": "deleted"}
 
+
+
 @router.get("/{file_id}/download", response_model=DownloadUrlResponse, dependencies=[Depends(rate_limit_user(general_limiter))])
 async def get_download_url(
     file_id: uuid.UUID,
@@ -172,8 +231,17 @@ async def get_download_url(
     if not file_row or file_row.owner_id != current_user.id or file_row.status != "active":
         raise HTTPException(404, "File not found")
 
-    url = await s3.generate_download_url(key=file_row.s3_key)
-    return {"url": url}
+    stream = s3.get_object_stream(key=file_row.s3_key)
+
+    return StreamingResponse(
+        stream,
+        media_type=file_row.content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename={file_row.filename}"
+        }
+    )
+
+
 
 @router.patch("/{file_id}", response_model=FileOut, dependencies=[Depends(rate_limit_user(general_limiter))])
 async def rename_file(
