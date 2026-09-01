@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || 'http://localhost:8000';
+// No absolute backend URL needed — Next.js rewrites in next.config.ts
+// proxy all /api/* requests to the FastAPI backend server-side.
+const API_BASE = "";
 
 // ─── Token helpers ───────────────────────────────────────────────
 
@@ -102,8 +104,6 @@ export interface DirectoryListing {
 export interface UploadInitiateResponse {
   file_id: string;
   upload_mode: 'single' | 'multipart';
-  put_url?: string;
-  upload_id?: string;
 }
 
 // ─── Auth API ────────────────────────────────────────────────────
@@ -173,8 +173,38 @@ export async function apiDeleteFolder(folderId: string): Promise<{ status: strin
   });
 }
 
-export async function apiGetDownloadUrl(fileId: string): Promise<{ url: string }> {
-  return fetchApi<{ url: string }>(`/api/v1/files/${fileId}/download`);
+export async function apiDownloadFile(fileId: string): Promise<void> {
+  const token = getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/api/v1/files/${fileId}/download`, { headers });
+
+  if (!res.ok) {
+    throw new Error(`Download failed: ${res.status}`);
+  }
+
+  // Extract filename from Content-Disposition header if available
+  const disposition = res.headers.get('Content-Disposition');
+  let filename = 'download';
+  if (disposition) {
+    const match = disposition.match(/filename\*?=(?:UTF-8''|")?(.*?)(?:"|;|$)/i);
+    if (match?.[1]) {
+      filename = decodeURIComponent(match[1]);
+    }
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export async function apiRenameFile(fileId: string, name: string): Promise<FileOut> {
@@ -218,19 +248,67 @@ export async function apiInitiateUpload(
   });
 }
 
-export async function apiGetPartUrl(
+export async function apiUploadSingle(
+  fileId: string,
+  file: File,
+): Promise<{ status: string }> {
+  const token = getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/api/v1/files/${fileId}/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.detail || 'Upload failed');
+  }
+
+  return res.json();
+}
+
+export async function apiUploadPart(
   fileId: string,
   partNumber: number,
-): Promise<{ part_number: number; url: string }> {
-  return fetchApi<{ part_number: number; url: string }>(
-    `/api/v1/files/uploads/${fileId}/part-url?part_number=${partNumber}`,
-    { method: 'POST' },
+  chunk: Blob,
+): Promise<{ part_number: number; etag: string }> {
+  const token = getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const formData = new FormData();
+  formData.append('part', chunk);
+
+  const res = await fetch(
+    `${API_BASE}/api/v1/files/uploads/${fileId}/part?part_number=${partNumber}`,
+    {
+      method: 'PUT',
+      headers,
+      body: formData,
+    },
   );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.detail || 'Part upload failed');
+  }
+
+  return res.json();
 }
 
 export async function apiCompleteUpload(
   fileId: string,
-  parts: { part_number: number; etag: number }[],
+  parts: { part_number: number; etag: string }[],
 ): Promise<{ file_id: string; status: string }> {
   return fetchApi<{ file_id: string; status: string }>(
     `/api/v1/files/uploads/${fileId}/complete`,

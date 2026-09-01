@@ -2,8 +2,15 @@
 
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { apiInitiateUpload, apiCompleteUpload } from '@/lib/api';
+import {
+  apiInitiateUpload,
+  apiUploadSingle,
+  apiUploadPart,
+  apiCompleteUpload,
+} from '@/lib/api';
 import { RiUploadCloud2Line, RiLoader4Line } from 'react-icons/ri';
+
+const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
 
 interface UploadButtonProps {
   currentFolderId: string | null;
@@ -30,7 +37,7 @@ export default function UploadButton({ currentFolderId, onUploadComplete }: Uplo
       setUploadProgress(`Uploading ${file.name}...`);
 
       try {
-        // Initiate upload
+        // Step 1: Initiate upload — creates DB row, returns file_id + upload_mode
         const initRes = await apiInitiateUpload(
           file.name,
           file.size,
@@ -38,18 +45,30 @@ export default function UploadButton({ currentFolderId, onUploadComplete }: Uplo
           currentFolderId,
         );
 
-        if (initRes.upload_mode === 'single' && initRes.put_url) {
-          // Single PUT upload
-          const res = await fetch(initRes.put_url, {
-            method: 'PUT',
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-            body: file,
-          });
-          
-          if (!res.ok) throw new Error('Failed to upload to S3');
-          
-          // Notify backend that upload is complete
+        if (initRes.upload_mode === 'single') {
+          // Step 2a: Single-file upload — send entire file as multipart/form-data
+          await apiUploadSingle(initRes.file_id, file);
+
+          // Step 3a: Complete — no parts to report for single mode
           await apiCompleteUpload(initRes.file_id, []);
+        } else {
+          // Step 2b: Multipart upload — split file into chunks
+          const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+          const parts: { part_number: number; etag: string }[] = [];
+
+          for (let partNum = 1; partNum <= totalChunks; partNum++) {
+            const start = (partNum - 1) * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+
+            setUploadProgress(`Uploading ${file.name} (${partNum}/${totalChunks})...`);
+
+            const partRes = await apiUploadPart(initRes.file_id, partNum, chunk);
+            parts.push({ part_number: partRes.part_number, etag: partRes.etag });
+          }
+
+          // Step 3b: Complete — send all part ETags so S3 can assemble them
+          await apiCompleteUpload(initRes.file_id, parts);
         }
       } catch (err: any) {
         console.error('Upload failed:', err);
@@ -95,3 +114,4 @@ export default function UploadButton({ currentFolderId, onUploadComplete }: Uplo
     </>
   );
 }
+

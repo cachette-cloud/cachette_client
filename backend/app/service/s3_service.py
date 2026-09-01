@@ -1,10 +1,8 @@
-from typing import Any
-
+from typing import Any, AsyncGenerator
 import aioboto3
 from botocore.exceptions import ClientError
 
 from app.config import settings
-
 
 class S3Service:
     def __init__(self) -> None:
@@ -17,7 +15,13 @@ class S3Service:
         self._session = aioboto3.Session()
 
     def _client(self):
-        return self._session.client("s3", region_name=self.region)
+        return self._session.client(
+            "s3",
+            region_name=self.region,
+            endpoint_url=settings.S3_ENDPOINT_URL,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        )
 
     # ------------------------------------------------------------------
     # Multipart Upload
@@ -178,6 +182,87 @@ class S3Service:
         except ClientError as e:
             raise RuntimeError(f"Failed to generate put URL: {e}") from e
 
+    async def put_object_bytes(
+        self,
+        *,
+        key: str,
+        content_type: str,
+        body: bytes,
+    ) -> None:
+        try:
+            async with self._client() as client:
+                await client.put_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    ContentType=content_type,
+                    Body=body,
+                )
+        except ClientError as e:
+            raise RuntimeError(f"Failed to put object: {e}") from e
+
+    # ------------------------------------------------------------------
+    # Upload file
+    # ------------------------------------------------------------------
+
+    async def upload_file(
+        self,
+        *,
+        key: str,
+        content_type: str,
+        body: bytes,
+    ) -> None:
+        try:
+            async with self._client() as client:
+                await client.put_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    ContentType=content_type,
+                    Body=body,
+                )
+        except ClientError as e:
+            raise RuntimeError(f"Failed to upload file: {e}") from e
+
+    async def upload_part_bytes(
+        self,
+        *,
+        key: str,
+        upload_id: str,
+        part_number: int,
+        body: bytes,
+    ) -> str:
+        try:
+            async with self._client() as client:
+                response = await client.upload_part(
+                    Bucket=self.bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    PartNumber=part_number,
+                    Body=body,
+                )
+                return response["ETag"]
+        except ClientError as e:
+            raise RuntimeError(f"Failed to upload part: {e}") from e
+
+    # ------------------------------------------------------------------
+    # Download file
+    # ------------------------------------------------------------------
+
+    async def get_object_stream(
+        self,
+        *,
+        key: str,
+        expires_in: int = 3600,
+    ) -> AsyncGenerator[bytes, None]:
+        try:
+            async with self._client() as client:
+                response = await client.get_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                )
+                async for chunk in response["Body"]:
+                    yield chunk
+        except ClientError as e:
+            raise RuntimeError(f"Failed to get object: {e}") from e
 
 
 s3_service = S3Service()

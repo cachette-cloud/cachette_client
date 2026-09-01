@@ -207,14 +207,8 @@ export default function DashboardPage() {
 
   const handleDownloadFile = async (fileId: string) => {
     try {
-      const { apiGetDownloadUrl } = await import('@/lib/api');
-      const { url } = await apiGetDownloadUrl(fileId);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const { apiDownloadFile } = await import('@/lib/api');
+      await apiDownloadFile(fileId);
     } catch (err) {
       console.error('Download failed:', err);
       alert('Failed to start download');
