@@ -47,9 +47,12 @@ async def client(db_session):
 
 @pytest_asyncio.fixture(autouse=True)
 async def clear_rate_limits():
-    await RedisClient.connect()
-    redis_client = await RedisClient.get()
-    keys = await redis_client.keys("ratelimit:*")
-    if keys:
-        await redis_client.delete(*keys)
+    try:
+        await RedisClient.connect()
+        redis_client = await RedisClient.get()
+        keys = await redis_client.keys("ratelimit:*")
+        if keys:
+            await redis_client.delete(*keys)
+    except Exception:
+        pass
     yield
