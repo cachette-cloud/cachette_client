@@ -8,6 +8,7 @@ from app.core.redis_client import RedisClient
 from app.db import engine
 from app.routes.auth import router as auth_router
 from app.routes.files import router as files_router
+from app.routes.status import router as status_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +64,7 @@ async def health_check():
 
 # ----------- API ENDPOINTS ------------ #
 
+app.include_router(status_router)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(files_router, prefix="/api/v1")
 
