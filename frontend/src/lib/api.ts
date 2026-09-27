@@ -150,6 +150,15 @@ export interface UploadInitiateResponse {
   upload_id?: string;
 }
 
+export interface ShareResponse {
+  id: string;
+  file_id: string;
+  access_level: 'view' | 'download';
+  slug: string;
+  url: string;
+  created_at: string;
+}
+
 // ─── Node Pairing & Session API ──────────────────────────────────
 
 export async function apiGetNodeSession(): Promise<NodeSessionResponse> {
@@ -270,6 +279,16 @@ export async function apiGetFile(fileId: string): Promise<FileOut> {
 export async function apiDeleteFile(fileId: string): Promise<{ status: string }> {
   return fetchApi<{ status: string }>(`/api/v1/files/${fileId}`, {
     method: 'DELETE',
+  });
+}
+
+export async function apiShareFile(
+  fileId: string,
+  accessLevel: 'view' | 'download' = 'view',
+): Promise<ShareResponse> {
+  return fetchApi<ShareResponse>(`/api/v1/files/${fileId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ access_level: accessLevel }),
   });
 }
 

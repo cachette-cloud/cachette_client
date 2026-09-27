@@ -16,6 +16,7 @@ import {
   RiFileLine,
   RiDownloadCloud2Line,
   RiEditLine,
+  RiShareForwardLine,
 } from 'react-icons/ri';
 import {
   DropdownMenu,
@@ -33,6 +34,7 @@ interface FileGridProps {
   onDownloadFile: (fileId: string) => void;
   onRenameFile: (fileId: string, currentName: string) => void;
   onRenameFolder: (folderId: string, currentName: string) => void;
+  onShareFile: (file: FileOut) => void;
   isLoading?: boolean;
 }
 
@@ -72,6 +74,7 @@ export default function FileGrid({
   onDownloadFile,
   onRenameFile,
   onRenameFolder,
+  onShareFile,
   isLoading,
 }: FileGridProps) {
   if (isLoading) {
@@ -202,6 +205,13 @@ export default function FileGrid({
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="bg-[#141414] border-white/[0.08] min-w-[140px]">
+                    <DropdownMenuItem
+                      onClick={(e) => { e.stopPropagation(); onShareFile(file); }}
+                      className="text-white/80 focus:text-white text-[13px] cursor-pointer"
+                    >
+                      <RiShareForwardLine className="w-4 h-4 mr-2 text-white/50" />
+                      Share
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={(e) => { e.stopPropagation(); onDownloadFile(file.id); }}
                       className="text-white/80 focus:text-white text-[13px] cursor-pointer"

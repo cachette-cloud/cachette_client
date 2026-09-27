@@ -22,6 +22,7 @@ class File(Base):
     shares = relationship("FileShare", back_populates="file")
     folder = relationship("Folder", back_populates="files")
     share_links = relationship("ShareLink", back_populates="file")
+    public_shares = relationship("Share", back_populates="file", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_files_owner_id", "owner_id"),

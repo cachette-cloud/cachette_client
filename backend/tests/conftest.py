@@ -72,20 +72,24 @@ def make_token(rsa_keypair):
 
 
 from app.models.file import File
+from app.models.share import Share
 
 
 @pytest_asyncio.fixture(scope="function")
 async def mock_db_session():
-    """Mock async DB session that simulates UserCache and File storage in memory."""
+    """Mock async DB session that simulates UserCache, File, and Share storage in memory."""
     session = AsyncMock()
     users_store = {}
     files_store = {}
+    shares_store = {}
 
     async def mock_get(model, pk):
         if model is UserCache:
             return users_store.get(str(pk))
         if model is File:
             return files_store.get(str(pk))
+        if model is Share:
+            return shares_store.get(str(pk))
         return None
 
     def mock_add(instance):
@@ -93,6 +97,8 @@ async def mock_db_session():
             users_store[str(instance.user_id)] = instance
         elif isinstance(instance, File):
             files_store[str(instance.id)] = instance
+        elif isinstance(instance, Share):
+            shares_store[str(instance.id)] = instance
 
     async def mock_commit():
         pass
@@ -100,12 +106,44 @@ async def mock_db_session():
     async def mock_refresh(instance):
         pass
 
+    async def mock_execute(stmt):
+        mock_result = MagicMock()
+        stmt_str = str(stmt).lower()
+        if "shares" in stmt_str:
+            matched = list(shares_store.values())
+            try:
+                compiled = stmt.compile()
+                cparams = compiled.params
+            except Exception:
+                cparams = {}
+            filtered = []
+            for s in matched:
+                match = True
+                for k, v in cparams.items():
+                    if "slug" in k and s.slug != v:
+                        match = False
+                    if "file_id" in k and str(s.file_id) != str(v):
+                        match = False
+                    if "access_level" in k and s.access_level != v:
+                        match = False
+                if match:
+                    filtered.append(s)
+            mock_result.scalars.return_value.first = MagicMock(side_effect=lambda: filtered[0] if filtered else None)
+            mock_result.scalars.return_value.all = MagicMock(side_effect=lambda: filtered)
+            return mock_result
+
+        mock_result.scalars.return_value.first.return_value = None
+        mock_result.scalars.return_value.all.return_value = []
+        return mock_result
+
     session.get = AsyncMock(side_effect=mock_get)
     session.add = MagicMock(side_effect=mock_add)
     session.commit = AsyncMock(side_effect=mock_commit)
     session.refresh = AsyncMock(side_effect=mock_refresh)
+    session.execute = AsyncMock(side_effect=mock_execute)
     session._users_store = users_store
     session._files_store = files_store
+    session._shares_store = shares_store
 
     return session
 

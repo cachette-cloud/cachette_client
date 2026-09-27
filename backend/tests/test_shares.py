@@ -298,3 +298,27 @@ async def test_jwks_refresh_on_rotated_key(client, test_node_id, create_test_fil
         response = await client.get(f"/api/v1/shared/{file_id}?token={token}")
         assert response.status_code == 200
         assert response.headers.get("Content-Disposition") == "inline"
+
+
+@pytest.mark.asyncio
+async def test_shared_file_access_level_claim_download(client, make_token, test_node_id, create_test_file, mock_s3):
+    """Test that access_level='download' sets attachment Content-Disposition."""
+    file_id = uuid.uuid4()
+    create_test_file(file_id=file_id, filename="report.csv", content_type="text/csv")
+
+    token = make_token(
+        token_type="share_access",
+        custom_claims={
+            "resource_id": str(file_id),
+            "node_id": test_node_id,
+            "access_level": "download",
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        },
+    )
+
+    response = await client.get(f"/api/v1/shared/{file_id}?token={token}")
+    assert response.status_code == 200
+    assert response.headers.get("Content-Disposition") == 'attachment; filename="report.csv"'
+    assert response.headers.get("Content-Type").startswith("text/csv")
+    assert response.content == b"chunk-1chunk-2"
+
