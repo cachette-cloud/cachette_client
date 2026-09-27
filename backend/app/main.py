@@ -10,7 +10,7 @@ from app.core.jwks import jwks_manager
 from app.db import engine
 from app.routes.files import router as files_router
 from app.routes.pairing import router as pairing_router
-from app.routes.shares import router as shares_router
+from app.routes.shares import router as shares_router, public_slug_router
 from app.service.s3_service import s3_service
 from app.service.tunnel_service import ensure_cloudflared_on_startup
 
@@ -94,3 +94,6 @@ async def health_check():
 app.include_router(files_router, prefix="/api/v1")
 app.include_router(pairing_router, prefix="/api/v1")
 app.include_router(shares_router, prefix="/api/v1")
+app.include_router(public_slug_router)
+app.include_router(public_slug_router, prefix="/api/v1")
+

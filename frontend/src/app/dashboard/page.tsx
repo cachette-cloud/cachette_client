@@ -10,6 +10,7 @@ import Sidebar from '@/components/dashboard/sidebar';
 import Breadcrumb, { type BreadcrumbItem } from '@/components/dashboard/breadcrumb';
 import FileGrid from '@/components/dashboard/file-grid';
 import UploadButton from '@/components/dashboard/upload-button';
+import ShareModal from '@/components/dashboard/share-modal';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,10 @@ export default function DashboardPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Share file state
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [fileToShare, setFileToShare] = useState<FileOut | null>(null);
 
   // Delete folder confirmation
   const [deleteFolderDialogOpen, setDeleteFolderDialogOpen] = useState(false);
@@ -353,6 +358,10 @@ export default function DashboardPage() {
             onDownloadFile={handleDownloadFile}
             onRenameFile={handleRenameFileClick}
             onRenameFolder={handleRenameFolderClick}
+            onShareFile={(file) => {
+              setFileToShare(file);
+              setShareModalOpen(true);
+            }}
             isLoading={isLoading}
           />
         </motion.div>
@@ -503,6 +512,13 @@ export default function DashboardPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Share Modal */}
+      <ShareModal
+        file={fileToShare}
+        open={shareModalOpen}
+        onOpenChange={setShareModalOpen}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ from app import dependencies
 from sqlalchemy import SelectLabelStyle
 from sqlalchemy import select
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, Request, File as FastAPIFile
 from fastapi.responses import StreamingResponse
@@ -12,9 +13,12 @@ from app.dependencies import get_current_node_user, get_s3_service, rate_limit_u
 from app.models.user import UserCache
 from app.models.file import File
 from app.models.folder import Folder
+from app.models.share import Share
 from app.schema.file import UploadInitiate, UploadInitiateResponse, CompleteUpload, CompletePart, FileOut, DirectoryListing, FolderOut, FolderCreate, ItemRename, DownloadUrlResponse
+from app.schema.share import ShareCreate, ShareOut
 from app.service.s3_service import s3_service
-from app.config import settings
+from app.config import settings, get_current_subdomain
+from app.core.slug import generate_share_slug
 
 router = APIRouter(prefix="/files", tags = ["files"])
 
@@ -429,3 +433,74 @@ async def get_file(
     if not file_row or file_row.owner_id != current_user.id or file_row.status != "active":
         raise HTTPException(404, "File not found")
     return file_row
+
+
+def build_share_url(slug: str, request_base_url: Optional[str] = None) -> str:
+    """Build full public share URL using this node's known subdomain or request base URL."""
+    subdomain = get_current_subdomain()
+    if subdomain:
+        return f"https://{subdomain}.cachette.cloud/s/{slug}"
+    if request_base_url:
+        return f"{request_base_url.rstrip('/')}/s/{slug}"
+    return f"http://localhost:8000/s/{slug}"
+
+
+@router.post(
+    "/{file_id}/share",
+    response_model=ShareOut,
+    dependencies=[Depends(rate_limit_user(general_limiter))],
+)
+async def create_or_get_file_share(
+    file_id: uuid.UUID,
+    body: ShareCreate,
+    request: Request,
+    current_user: UserCache = Depends(get_current_node_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create or reuse a public share link for a file with the given access_level (view or download).
+    Owner-only, returns the full public URL on this node's subdomain.
+    """
+    file_row = await db.get(File, file_id)
+    if not file_row or file_row.owner_id != current_user.id or file_row.status != "active":
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Reuse an existing share for this file+access_level pair if one exists
+    stmt = select(Share).where(
+        Share.file_id == file_id,
+        Share.access_level == body.access_level,
+    )
+    result = await db.execute(stmt)
+    share = result.scalars().first()
+
+    if not share:
+        # Generate a unique, short, random, non-sequential slug
+        for _ in range(5):
+            candidate_slug = generate_share_slug(length=10)
+            existing_slug = await db.execute(select(Share).where(Share.slug == candidate_slug))
+            if not existing_slug.scalars().first():
+                break
+        else:
+            candidate_slug = generate_share_slug(length=12)
+
+        share = Share(
+            id=uuid.uuid4(),
+            file_id=file_id,
+            access_level=body.access_level,
+            slug=candidate_slug,
+        )
+        db.add(share)
+        await db.commit()
+        await db.refresh(share)
+
+    base_url = str(request.base_url) if request else None
+    share_url = build_share_url(share.slug, request_base_url=base_url)
+
+    return ShareOut(
+        id=share.id,
+        file_id=share.file_id,
+        access_level=share.access_level,
+        slug=share.slug,
+        url=share_url,
+        created_at=share.created_at or datetime.now(timezone.utc),
+    )

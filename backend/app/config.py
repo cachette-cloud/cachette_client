@@ -1,4 +1,4 @@
- import json
+import json
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -56,10 +56,35 @@ def load_persisted_node_id() -> str:
     return ""
 
 
+def load_persisted_subdomain() -> str:
+    """
+    Load subdomain from environment (SUBDOMAIN or NODE_SUBDOMAIN) or pairing credentials storage.
+    """
+    if env_subdomain := os.getenv("SUBDOMAIN") or os.getenv("NODE_SUBDOMAIN"):
+        return env_subdomain.strip()
+
+    if PAIRING_CREDENTIALS_PATH.exists():
+        try:
+            with open(PAIRING_CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if sub := data.get("subdomain"):
+                    return str(sub).strip()
+        except Exception:
+            pass
+
+    return ""
+
+
 def get_current_node_id() -> str:
     if settings.NODE_ID:
         return settings.NODE_ID
     return load_persisted_node_id()
+
+
+def get_current_subdomain() -> str:
+    if settings.SUBDOMAIN:
+        return settings.SUBDOMAIN
+    return load_persisted_subdomain()
 
 
 class Settings(BaseSettings):
@@ -72,6 +97,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "RS256"
     PUBLIC_KEY: str = load_persisted_public_key()
     NODE_ID: str = load_persisted_node_id()
+    SUBDOMAIN: str = load_persisted_subdomain()
     CENTRAL_JWKS_URL: str = "https://cachette.cloud/api/v1/auth/.well-known/jwks.json"
 
     REDIS_URL: str = "redis://localhost:6379"
