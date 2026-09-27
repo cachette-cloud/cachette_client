@@ -6,9 +6,11 @@ from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.redis_client import RedisClient
+from app.core.jwks import jwks_manager
 from app.db import engine
 from app.routes.files import router as files_router
 from app.routes.pairing import router as pairing_router
+from app.routes.shares import router as shares_router
 from app.service.s3_service import s3_service
 from app.service.tunnel_service import ensure_cloudflared_on_startup
 
@@ -41,11 +43,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning(f"Unable to initialize S3 bucket on startup: {e}")
 
+    # Fetch Central JWKS public keys on startup and schedule periodic refresh
+    log.info("Startup: fetching Central JWKS public keys...")
+    try:
+        await jwks_manager.fetch_keys()
+    except Exception as e:
+        log.warning(f"Initial JWKS fetch failed, using fallback public key: {e}")
+
+    jwks_refresh_task = asyncio.create_task(
+        jwks_manager.start_background_refresh(interval_seconds=3600)
+    )
+
     # Startup resilience: automatically ensure cloudflared is online if paired
     asyncio.create_task(ensure_cloudflared_on_startup())
 
     yield
 
+    jwks_refresh_task.cancel()
     await RedisClient.disconnect()
     log.info("Shutdown complete: Redis disconnected.")
     await engine.dispose()
@@ -79,3 +93,4 @@ async def health_check():
 
 app.include_router(files_router, prefix="/api/v1")
 app.include_router(pairing_router, prefix="/api/v1")
+app.include_router(shares_router, prefix="/api/v1")

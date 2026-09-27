@@ -1,4 +1,4 @@
-import json
+ import json
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,7 +37,29 @@ def load_persisted_public_key() -> str:
         except Exception:
             pass
 
+def load_persisted_node_id() -> str:
+    """
+    Load node_id from environment or pairing credentials storage.
+    """
+    if env_node_id := os.getenv("NODE_ID"):
+        return env_node_id
+
+    if PAIRING_CREDENTIALS_PATH.exists():
+        try:
+            with open(PAIRING_CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if node_id := data.get("node_id"):
+                    return str(node_id)
+        except Exception:
+            pass
+
     return ""
+
+
+def get_current_node_id() -> str:
+    if settings.NODE_ID:
+        return settings.NODE_ID
+    return load_persisted_node_id()
 
 
 class Settings(BaseSettings):
@@ -46,9 +68,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    DATABASE_URL: str = "postgresql+asyncpg://dev:dev@localhost:5432/filestorage"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./cachette.db"
     ALGORITHM: str = "RS256"
     PUBLIC_KEY: str = load_persisted_public_key()
+    NODE_ID: str = load_persisted_node_id()
+    CENTRAL_JWKS_URL: str = "https://cachette.cloud/api/v1/auth/.well-known/jwks.json"
 
     REDIS_URL: str = "redis://localhost:6379"
     GENERAL_BUCKET_CAPACITY: int = 40

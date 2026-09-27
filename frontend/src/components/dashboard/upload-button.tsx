@@ -10,11 +10,35 @@ import {
 } from '@/lib/api';
 import { RiUploadCloud2Line, RiLoader4Line } from 'react-icons/ri';
 
-const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB (S3 standard part size)
+const CONCURRENT_CHUNKS = 4; // 4 parallel streams over tunnel
 
 interface UploadButtonProps {
   currentFolderId: string | null;
   onUploadComplete: () => void;
+}
+
+async function runConcurrentTasks<T, R>(
+  items: T[],
+  concurrency: number,
+  taskFn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const idx = nextIndex++;
+      results[idx] = await taskFn(items[idx]);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 export default function UploadButton({ currentFolderId, onUploadComplete }: UploadButtonProps) {
@@ -34,7 +58,8 @@ export default function UploadButton({ currentFolderId, onUploadComplete }: Uplo
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setUploadProgress(`Uploading ${file.name}...`);
+      const prefix = files.length > 1 ? `${i + 1}/${files.length} ` : '';
+      setUploadProgress(`${prefix}0%`);
 
       try {
         // Step 1: Initiate upload — creates DB row, returns file_id + upload_mode
@@ -46,28 +71,41 @@ export default function UploadButton({ currentFolderId, onUploadComplete }: Uplo
         );
 
         if (initRes.upload_mode === 'single') {
-          // Step 2a: Single-file upload — send entire file as multipart/form-data
+          // Step 2a: Single-file upload — send entire file directly
           await apiUploadSingle(initRes.file_id, file);
+          setUploadProgress(`${prefix}100%`);
 
           // Step 3a: Complete — no parts to report for single mode
           await apiCompleteUpload(initRes.file_id, []);
         } else {
-          // Step 2b: Multipart upload — split file into chunks
+          // Step 2b: Multipart upload — split file into 5MB chunks and upload concurrently
           const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-          const parts: { part_number: number; etag: string }[] = [];
+          const chunkTasks = [];
 
           for (let partNum = 1; partNum <= totalChunks; partNum++) {
             const start = (partNum - 1) * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, file.size);
-            const chunk = file.slice(start, end);
-
-            setUploadProgress(`Uploading ${file.name} (${partNum}/${totalChunks})...`);
-
-            const partRes = await apiUploadPart(initRes.file_id, partNum, chunk);
-            parts.push({ part_number: partRes.part_number, etag: partRes.etag });
+            chunkTasks.push({
+              partNum,
+              chunk: file.slice(start, end),
+            });
           }
 
+          let completedChunks = 0;
+          const parts = await runConcurrentTasks(
+            chunkTasks,
+            CONCURRENT_CHUNKS,
+            async (task) => {
+              const partRes = await apiUploadPart(initRes.file_id, task.partNum, task.chunk);
+              completedChunks++;
+              const percent = Math.min(100, Math.round((completedChunks / totalChunks) * 100));
+              setUploadProgress(`${prefix}${percent}%`);
+              return { part_number: partRes.part_number, etag: partRes.etag };
+            },
+          );
+
           // Step 3b: Complete — send all part ETags so S3 can assemble them
+          setUploadProgress(`${prefix}Saving...`);
           await apiCompleteUpload(initRes.file_id, parts);
         }
       } catch (err: any) {

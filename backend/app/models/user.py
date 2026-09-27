@@ -1,7 +1,6 @@
 import uuid
-from sqlalchemy import Column, String, BigInteger
+from sqlalchemy import Column, String, BigInteger, Uuid
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
 from app.db.base import Base
 
 DEFAULT_STORAGE_QUOTA_BYTES = 5 * 1024 ** 3  # 5GB free tier default
@@ -10,7 +9,7 @@ DEFAULT_STORAGE_QUOTA_BYTES = 5 * 1024 ** 3  # 5GB free tier default
 class UserCache(Base):
     __tablename__ = "user_cache"
 
-    user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     display_name = Column(String(255), nullable=True)
     storage_quota_bytes = Column(
         BigInteger,

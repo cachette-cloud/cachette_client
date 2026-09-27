@@ -81,3 +81,22 @@ general_limiter = Token_Bucket_Rate_Limiter(
     refill_rate=settings.GENERAL_BUCKET_REFILL_RATE,
     key_prefix="ratelimit:user",
 )
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract real client IP from Cloudflare, reverse proxy, or direct connection."""
+    if cf_ip := request.headers.get("cf-connecting-ip"):
+        return cf_ip.strip()
+    if forwarded := request.headers.get("x-forwarded-for"):
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
+
+
+# IP-keyed rate limiter for public shared file access (e.g. 60 requests capacity, 1 refill/sec)
+shared_ip_limiter = Token_Bucket_Rate_Limiter(
+    capacity=60,
+    refill_rate=1.0,
+    key_prefix="ratelimit:shared:ip",
+)

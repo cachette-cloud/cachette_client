@@ -69,7 +69,6 @@ class S3Service:
 
     async def generate_part_upload_url(
         self,
-        *,
         key: str,
         upload_id: str,
         part_number: int,
@@ -92,7 +91,6 @@ class S3Service:
 
     async def complete_multipart_upload(
         self,
-        *,
         key: str,
         upload_id: str,
         parts: list[dict[str, Any]],
@@ -114,7 +112,6 @@ class S3Service:
 
     async def abort_multipart_upload(
         self,
-        *,
         key: str,
         upload_id: str,
     ) -> None:
@@ -244,7 +241,6 @@ class S3Service:
 
     async def upload_part_bytes(
         self,
-        *,
         key: str,
         upload_id: str,
         part_number: int,

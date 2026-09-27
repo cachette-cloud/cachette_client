@@ -8,3 +8,7 @@ workdone.md
 cachette-key.pem
 CACHETTE_ROADMAP.md
 pairing_credentials.json
+*.db
+*.sqlite
+*.sqlite3
+data/

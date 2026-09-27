@@ -71,20 +71,28 @@ def make_token(rsa_keypair):
     return _make
 
 
+from app.models.file import File
+
+
 @pytest_asyncio.fixture(scope="function")
 async def mock_db_session():
-    """Mock async DB session that simulates UserCache storage in memory."""
+    """Mock async DB session that simulates UserCache and File storage in memory."""
     session = AsyncMock()
     users_store = {}
+    files_store = {}
 
     async def mock_get(model, pk):
         if model is UserCache:
             return users_store.get(str(pk))
+        if model is File:
+            return files_store.get(str(pk))
         return None
 
     def mock_add(instance):
         if isinstance(instance, UserCache):
             users_store[str(instance.user_id)] = instance
+        elif isinstance(instance, File):
+            files_store[str(instance.id)] = instance
 
     async def mock_commit():
         pass
@@ -97,6 +105,7 @@ async def mock_db_session():
     session.commit = AsyncMock(side_effect=mock_commit)
     session.refresh = AsyncMock(side_effect=mock_refresh)
     session._users_store = users_store
+    session._files_store = files_store
 
     return session
 

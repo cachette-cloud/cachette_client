@@ -3,7 +3,7 @@ from sqlalchemy import SelectLabelStyle
 from sqlalchemy import select
 import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, HTTPException, Query, UploadFile, File as FastAPIFile
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, Request, File as FastAPIFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,34 +46,33 @@ async def initiate_upload(
     file_id = uuid.uuid4()
     key = f"users/{current_user.id}/{file_id}"
 
+    upload_id = None
+    upload_mode = "single"
+    if body.size >= settings.MULTIPART_THRESHOLD:
+        upload_id = await s3.create_multipart_upload(key=key, content_type=body.content_type)
+        upload_mode = "multipart"
+
     fil_row = File(
-        id = file_id,
-        owner_id = current_user.id,
-        s3_key = key,
-        filename = body.filename,
-        size = body.size,
-        content_type = body.content_type,
-        status = "uploading",
-        folder_id = body.folder_id
+        id=file_id,
+        owner_id=current_user.id,
+        s3_key=key,
+        filename=body.filename,
+        size=body.size,
+        content_type=body.content_type,
+        status="uploading",
+        upload_id=upload_id,
+        folder_id=body.folder_id,
     )
     db.add(fil_row)
     await db.commit()
 
-    if body.size < settings.MULTIPART_THRESHOLD:
-        # put_url = await s3.generate_put_url(key=key, content_type=body.content_type)
-        return UploadInitiateResponse(
-            file_id = file_id,
-            upload_mode = "single"
-        )
-    else:
-        upload_id = await s3.create_multipart_upload(key=key, content_type=body.content_type)
-        return UploadInitiateResponse(
-            file_id = file_id,
-            upload_mode = "multipart",
-            upload_id = upload_id
-        )
+    return UploadInitiateResponse(
+        file_id=file_id,
+        upload_mode=upload_mode,
+        upload_id=upload_id,
+    )
     
-@router.post("/{file_id}/upload", dependencies=[Depends(rate_limit_user(general_limiter))])
+@router.post("/{file_id}/upload")
 async def upload_single(
     file_id: uuid.UUID,
     file: UploadFile,
@@ -101,11 +100,11 @@ async def upload_single(
 
     return {"status": "uploaded"}
 
-@router.put("/uploads/{file_id}/part", dependencies=[Depends(rate_limit_user(general_limiter))])
+@router.put("/uploads/{file_id}/part")
 async def upload_part(
     file_id: uuid.UUID,
     part_number: int,
-    part: UploadFile,
+    request: Request,
     current_user: UserCache = Depends(get_current_node_user),
     db: AsyncSession = Depends(get_db),
     s3: s3_service = Depends(get_s3_service)
@@ -116,10 +115,28 @@ async def upload_part(
         raise HTTPException(404, "file not found")
     if file_row.status != "uploading":
         raise HTTPException(400, "upload not in progress")
+    if not file_row.upload_id:
+        raise HTTPException(400, "Upload is not configured for multipart chunks (missing upload_id)")
 
-    data = await part.read()
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        part_file = form.get("part") or form.get("file")
+        if isinstance(part_file, UploadFile):
+            data = await part_file.read()
+        else:
+            data = await request.body()
+    else:
+        data = await request.body()
+
+    if not data:
+        raise HTTPException(400, "No chunk data provided")
+
     etag = await s3.upload_part_bytes(
-        file_row.s3_key, file_row.upload_id, part_number, data
+        key=file_row.s3_key,
+        upload_id=file_row.upload_id,
+        part_number=part_number,
+        body=data,
     )
 
     return {"part_number": part_number, "etag": etag}
@@ -138,17 +155,19 @@ async def get_part_url(
         raise HTTPException(400, "file not found")
     if file_row.status != "uploading":
         raise HTTPException(400, "upload not in progress")
+    if not file_row.upload_id:
+        raise HTTPException(400, "Upload is not configured for multipart chunks (missing upload_id)")
 
     url = await s3.generate_part_upload_url(
-        file_row.s3_key,
-        file_row.upload_id,
-        part_number
+        key=file_row.s3_key,
+        upload_id=file_row.upload_id,
+        part_number=part_number,
     )
 
     return {"part_number": part_number, "url": url}
 
 
-@router.post("/uploads/{file_id}/complete", dependencies = [Depends(rate_limit_user(general_limiter))])
+@router.post("/uploads/{file_id}/complete")
 async def complete_upload(
     file_id: uuid.UUID,
     body: CompleteUpload,
@@ -162,9 +181,9 @@ async def complete_upload(
     
     if file_row.upload_id:
         await s3.complete_multipart_upload(
-            file_row.s3_key,
-            file_row.upload_id,
-            [{"PartNumber": p.part_number, "ETag": p.etag} for p in body.parts]
+            key=file_row.s3_key,
+            upload_id=file_row.upload_id,
+            parts=[{"PartNumber": p.part_number, "ETag": p.etag} for p in body.parts],
         )
     else:
        exists = await s3.object_exists(key=file_row.s3_key)
@@ -195,7 +214,7 @@ async def abort_upload(
         raise HTTPException(404, "File not found")
     
     if file_row.upload_id:
-        await s3.abort_multipart_upload(file_row.s3_key, file_row.upload_id)
+        await s3.abort_multipart_upload(key=file_row.s3_key, upload_id=file_row.upload_id)
     await db.delete(file_row)
     await db.commit()
     return {"status": "aborted"}

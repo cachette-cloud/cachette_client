@@ -21,7 +21,7 @@ Cachette is a modern, full-stack file storage and sharing system built around fo
 
 - **Backend:** 
   - [FastAPI](https://fastapi.tiangolo.com/) - High-performance Python web framework.
-  - [PostgreSQL](https://www.postgresql.org/) - Relational database.
+  - [SQLite](https://www.sqlite.org/) & [aiosqlite](https://github.com/omnilib/aiosqlite) - Embedded relational database with WAL-mode async driver.
   - [SQLAlchemy](https://www.sqlalchemy.org/) & [Alembic](https://alembic.sqlalchemy.org/) - ORM and database migrations.
   - [aioboto3](https://github.com/terrycain/aioboto3) - Asynchronous AWS SDK for interacting with S3.
 - **Frontend:**
@@ -31,40 +31,40 @@ Cachette is a modern, full-stack file storage and sharing system built around fo
   - [Lucide/Remix Icons](https://remixicon.com/) - Beautiful, consistent icons.
 - **Infrastructure:**
   - [Docker](https://www.docker.com/) & Docker Compose - Containerized application environments.
-  - [AWS S3](https://aws.amazon.com/s3/) - Scalable object storage.
+  - [AWS S3 / MinIO](https://min.io/) - Scalable object storage.
 
 ## Running the Project
 
-The project is structured with separate `frontend` and `backend` directories and uses Docker Compose to easily spin up the environment (including a local PostgreSQL database).
+The project is structured with separate `frontend` and `backend` directories and uses Docker Compose to easily spin up the environment (MinIO object storage and Redis).
 
 ### Prerequisites
 - Docker and Docker Compose installed.
 - Node.js (for local frontend development).
 - Python 3.12 (for local backend development).
-- AWS Account with an S3 Bucket and IAM user configured.
+- S3 Bucket or local MinIO instance configured.
 
 ### Environment Setup
 
-Create an `.env` file in the `backend` directory with your database and AWS credentials:
+Create an `.env` file in the `backend` directory with your database and storage credentials:
 
 ```ini
 # backend/.env
-DATABASE_URL=postgresql+asyncpg://dev:dev@localhost:5432/filestorage
+DATABASE_URL=sqlite+aiosqlite:///./cachette.db
 SECRET_KEY=your_super_secret_key
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# AWS S3 Configuration
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
+# AWS S3 / MinIO Configuration
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
-S3_BUCKET_NAME=your_bucket_name
+S3_BUCKET_NAME=cachette-files
 MULTIPART_THRESHOLD=5242880 # 5MB
 ```
 
 ### Docker Compose
-You can easily start the PostgreSQL database and other services using docker-compose:
+You can easily start MinIO and other services using docker-compose:
 ```bash
 docker-compose up -d
 ```

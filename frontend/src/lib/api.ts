@@ -327,20 +327,19 @@ export async function apiUploadPart(
   chunk: Blob,
 ): Promise<{ part_number: number; etag: string }> {
   const token = getSessionToken();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/octet-stream',
+  };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-
-  const formData = new FormData();
-  formData.append('part', chunk);
 
   const res = await fetch(
     `${API_BASE}/api/v1/files/uploads/${fileId}/part?part_number=${partNumber}`,
     {
       method: 'PUT',
       headers,
-      body: formData,
+      body: chunk,
     },
   );
 

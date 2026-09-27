@@ -1,9 +1,11 @@
-import { source } from "motion/react-client";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  experimental: {
+    proxyClientMaxBodySize: "100mb",
+  },
 
   async rewrites() {
     return [
