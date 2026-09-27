@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   description: "Encrypted cloud storage built for speed. Upload, organize, and share your files with confidence. Up to 5 GB free.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
