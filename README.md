@@ -1,94 +1,168 @@
-# Cachette
+# Cachette Node
 
-Cachette is a modern, full-stack file storage and sharing system built around folders and user accounts. It allows users to organize files into nested folders, upload and manage files robustly (including large files via multipart uploads), and is designed to eventually support sharing content with other users or through share links.
+> **Turn any PC, laptop, or server into your own internet-accessible personal cloud storage.**
 
-## Project Scope & Features
+Cachette is a decentralized, self-hosted personal cloud storage platform. It decouples the control plane (**Central** at [cachette.cloud](https://cachette.cloud)) from your local hardware (**Node**), giving you S3-compatible cloud storage with public HTTPS access—**zero port-forwarding, zero dynamic DNS, and zero central byte storage**.
 
-- **Authentication System:** Secure signup, login, JWT access/refresh token handling, and user profile management.
-- **Folder Navigation:** Users can create folders and nest them to organize their files effectively.
-- **File Management:** 
-  - Upload files directly to AWS S3.
-  - Large files are seamlessly handled using S3 multipart uploads.
-  - Download files using securely generated AWS presigned URLs.
-  - Safely rename files and folders.
-  - Delete files and recursively delete folders (automatically cleaning up database records and corresponding S3 objects).
-- **Duplicate Prevention:** The system actively checks and prevents users from creating duplicate files or folders in the same directory, gracefully returning errors instead of overwriting data.
-- **Planned Features:**
-  - File sharing workflows for user-to-user access and link-based access.
-  - In-app preview components for common file types (Video player, PDF viewer, DOCX viewer).
+---
+
+## Architectural Highlights
+
+- **Zero Port-Forwarding Ingress**: Uses an outbound-only Cloudflare Tunnel (`cloudflared`). Central provisions a unique public subdomain (`https://<your-subdomain>.cachette.cloud`) routing traffic directly to your node.
+- **Decentralized Cryptographic Trust**: Nodes verify incoming requests using Central's RSA public key (`RS256`). No local password database or email setup is needed.
+- **Direct S3 / MinIO Storage**: File bytes stream directly into your local MinIO/S3 object store. Central never proxies or stores your files.
+- **Resilient Upload Engine**: Automatic single-file and chunked multipart uploads (10 MB chunks) with resumability and pre-upload quota checks.
+- **Rate Limiting**: Distributed token-bucket rate limiter powered by Redis.
+
+---
 
 ## Technology Stack
 
-- **Backend:** 
-  - [FastAPI](https://fastapi.tiangolo.com/) - High-performance Python web framework.
-  - [SQLite](https://www.sqlite.org/) & [aiosqlite](https://github.com/omnilib/aiosqlite) - Embedded relational database with WAL-mode async driver.
-  - [SQLAlchemy](https://www.sqlalchemy.org/) & [Alembic](https://alembic.sqlalchemy.org/) - ORM and database migrations.
-  - [aioboto3](https://github.com/terrycain/aioboto3) - Asynchronous AWS SDK for interacting with S3.
-- **Frontend:**
-  - [Next.js](https://nextjs.org/) (React) - Frontend framework.
-  - [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework for rapid UI development.
-  - [Framer Motion](https://www.framer.com/motion/) - Animation library for React to create smooth, dynamic UI interactions.
-  - [Lucide/Remix Icons](https://remixicon.com/) - Beautiful, consistent icons.
-- **Infrastructure:**
-  - [Docker](https://www.docker.com/) & Docker Compose - Containerized application environments.
-  - [AWS S3 / MinIO](https://min.io/) - Scalable object storage.
+- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.12), [SQLite](https://www.sqlite.org/) with [aiosqlite](https://github.com/omnilib/aiosqlite) (WAL mode), [SQLAlchemy 2.0](https://www.sqlalchemy.org/) & [Alembic](https://alembic.sqlalchemy.org/), [aioboto3](https://github.com/terrycain/aioboto3).
+- **Frontend**: [Next.js](https://nextjs.org/) (React, Turbopack, Tailwind CSS, Lucide & Remix Icons).
+- **Storage & Infrastructure**: [MinIO](https://min.io/) (via Chainguard secure community image), [Redis 7](https://redis.io/), [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
-## Running the Project
+---
 
-The project is structured with separate `frontend` and `backend` directories and uses Docker Compose to easily spin up the environment (MinIO object storage and Redis).
+## Quick Start (Automated Setup)
+
+The repository provides automated setup scripts that check prerequisites, generate `.env` files, build containers, and launch all services.
 
 ### Prerequisites
-- Docker and Docker Compose installed.
-- Node.js (for local frontend development).
-- Python 3.12 (for local backend development).
-- S3 Bucket or local MinIO instance configured.
+- [Docker Desktop](https://www.docker.com/) (make sure Docker daemon is running)
+- *Optional for local dev*: Python 3.12+, Node.js 20+
 
-### Environment Setup
+### Option 1: Windows (PowerShell)
 
-Create an `.env` file in the `backend` directory with your database and storage credentials:
+```powershell
+.\setup.ps1
+```
 
+### Option 2: Linux / macOS / WSL / Git Bash
+
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+> **Flags:** You can also run non-interactively with `./setup.sh --docker` (full Docker stack) or `./setup.sh --dev` (local development mode).
+
+---
+
+## Manual Setup
+
+### 1. Environment Configuration
+
+Create the following environment files if configuring manually:
+
+#### Root `.env`
 ```ini
-# backend/.env
 DATABASE_URL=sqlite+aiosqlite:///./cachette.db
-SECRET_KEY=your_super_secret_key
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# AWS S3 / MinIO Configuration
+REDIS_URL=redis://localhost:6379
+S3_ENDPOINT_URL=http://localhost:9002
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=cachette-files
-MULTIPART_THRESHOLD=5242880 # 5MB
+
+# Populated automatically once paired with Central
+CF_TUNNEL_TOKEN=
 ```
 
-### Docker Compose
-You can easily start MinIO and other services using docker-compose:
+#### `backend/.env`
+```ini
+DATABASE_URL=sqlite+aiosqlite:///./cachette.db
+REDIS_URL=redis://localhost:6379
+S3_ENDPOINT_URL=http://localhost:9002
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+AWS_REGION=us-east-1
+S3_BUCKET_NAME=cachette-files
+CENTRAL_URL=https://cachette.cloud
+CF_TUNNEL_TOKEN=
+```
+
+#### `frontend/.env`
+```ini
+BACKEND_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
+```
+
+---
+
+### 2. Running with Docker Compose (All-in-One)
+
+Build and launch all services (`redis`, `minio`, `app`, `frontend`, `cloudflared`):
+
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 
-### Starting the Backend (Locally)
+---
+
+### 3. Running for Local Development
+
+#### Start Storage & Cache (MinIO + Redis)
+```bash
+docker compose up -d redis minio
+```
+
+#### Start Backend (FastAPI)
 ```bash
 cd backend
 python -m venv .venv
-# Activate the virtual environment
-source .venv/bin/activate # (or .venv\Scripts\activate on Windows)
+
+# Activate venv:
+# Windows: .\.venv\Scripts\Activate.ps1
+# Linux/macOS: source .venv/bin/activate
+
+pip install --upgrade pip
 pip install -r requirements.txt
-
-# Run migrations
 alembic upgrade head
-
-# Start the server
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Starting the Frontend (Locally)
+#### Start Frontend (Next.js)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000`.
+---
+
+## First-Time Node Pairing
+
+1. Open **`http://localhost:3000`** in your browser.
+2. If the node is not yet paired, you will see the pairing setup screen.
+3. Log in to [cachette.cloud](https://cachette.cloud) and generate a **6-character Node Claim Code**.
+4. Enter the code in the local pairing interface.
+5. The backend will:
+   - Exchange the claim token with Central.
+   - Receive your persistent node ID, RSA public key (`public.pem`), and Cloudflare Tunnel token.
+   - Automatically launch the `cloudflared` tunnel container.
+   - Redirect you to your personal storage dashboard.
+
+---
+
+## Service Endpoints & Ports
+
+| Service | Port | Description |
+|---|---|---|
+| **Frontend UI** | `http://localhost:3000` | Web application and file manager |
+| **Backend API** | `http://localhost:8000` | FastAPI service & `/docs` Swagger |
+| **Health Check** | `http://localhost:8000/health` | Container liveness & status probe |
+| **MinIO S3 API** | `http://localhost:9002` | S3-compatible object storage API |
+| **MinIO Console** | `http://localhost:9003` | Storage web dashboard (`minioadmin` / `minioadmin`) |
+| **Redis** | `localhost:6379` | Token bucket rate-limiter store |
+
+---
+
+## Running Automated Tests
+
+Run the backend test suite:
+
+```bash
+cd backend
+pytest
+```
