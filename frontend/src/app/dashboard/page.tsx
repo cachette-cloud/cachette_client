@@ -29,7 +29,7 @@ import {
   RiExternalLinkLine,
 } from 'react-icons/ri';
 
-const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'http://localhost:4000';
+const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
 
 export default function DashboardPage() {
   const router = useRouter();

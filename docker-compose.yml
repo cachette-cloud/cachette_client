@@ -4,6 +4,7 @@ services:
     restart: unless-stopped
 
   app:
+    build: ./backend
     image: biswaman/cachette-backend:latest
     ports:
       - "8000:8000"
@@ -30,16 +31,18 @@ services:
       - "host.docker.internal:host-gateway"
 
   frontend:
+    build: ./frontend
     image: biswaman/cachette-frontend:latest
     ports:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_CENTRAL_URL: https://cachette.cloud
     depends_on:
       - app
 
   minio:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
     ports:
