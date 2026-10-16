@@ -107,6 +107,12 @@ fi
 # ------------------------------------------------------------------------------
 # 3. Determine Setup Mode
 # ------------------------------------------------------------------------------
+# Check if CF_TUNNEL_TOKEN is already set in .env
+CF_TOKEN=""
+if [ -f ".env" ]; then
+    CF_TOKEN=$(grep -E "^CF_TUNNEL_TOKEN=" .env | cut -d '=' -f2- | tr -d '[:space:]' || true)
+fi
+
 SETUP_MODE=""
 
 if [ "$1" == "--docker" ]; then
@@ -128,7 +134,12 @@ fi
 # ------------------------------------------------------------------------------
 if [ "$SETUP_MODE" == "1" ]; then
     echo -e "\n${YELLOW}[4/4] Starting all services with Docker Compose...${NC}"
-    $COMPOSE_CMD up -d --build
+    if [ -n "$CF_TOKEN" ]; then
+        echo -e "  ${GREEN}✔${NC} Found CF_TUNNEL_TOKEN: starting stack with Cloudflare tunnel profile..."
+        $COMPOSE_CMD --profile tunnel up -d --build
+    else
+        $COMPOSE_CMD up -d --build
+    fi
 
     echo -e "\n${GREEN}====================================================${NC}"
     echo -e "${GREEN}   ✔ Cachette Docker Stack is up and running!       ${NC}"
@@ -136,14 +147,28 @@ if [ "$SETUP_MODE" == "1" ]; then
     echo -e "  • ${CYAN}Frontend UI:${NC}    http://localhost:3000"
     echo -e "  • ${CYAN}Backend API:${NC}    http://localhost:8000/docs"
     echo -e "  • ${CYAN}MinIO Console:${NC}  http://localhost:9003  (User: minioadmin / Pass: minioadmin)"
-    echo -e "\n${YELLOW}Next Step:${NC} Open http://localhost:3000 to complete node pairing with Central."
+
+    if [ -n "$CF_TOKEN" ]; then
+        echo -e "\n  ${GREEN}✔ Tunnel Status:${NC} Cloudflare tunnel is running and connected."
+        echo -e "  Your node is accessible via your assigned subdomain on ${CYAN}cachette.cloud${NC}."
+    else
+        echo -e "\n${YELLOW}Open http://localhost:3000 to pair your node. The tunnel starts after pairing.${NC}"
+        echo -e "Once paired, your node will be live at its public subdomain."
+        echo -e "If the tunnel does not start automatically after pairing, run:"
+        echo -e "  ${CYAN}$COMPOSE_CMD --profile tunnel up -d cloudflared${NC}"
+    fi
 
 elif [ "$SETUP_MODE" == "2" ]; then
     echo -e "\n${YELLOW}[4/4] Setting up Local Development environment...${NC}"
 
-    # Start MinIO & Redis
-    echo -e "\nStarting supporting storage containers (Redis & MinIO)..."
-    $COMPOSE_CMD up -d redis minio
+    # Start MinIO & Redis (+ cloudflared if token is present)
+    if [ -n "$CF_TOKEN" ]; then
+        echo -e "\nStarting supporting containers (Redis, MinIO & Cloudflared tunnel)..."
+        $COMPOSE_CMD --profile tunnel up -d redis minio cloudflared
+    else
+        echo -e "\nStarting supporting storage containers (Redis & MinIO)..."
+        $COMPOSE_CMD up -d redis minio
+    fi
 
     # Check for Python
     PYTHON_CMD=""
@@ -204,7 +229,17 @@ elif [ "$SETUP_MODE" == "2" ]; then
     echo -e "    npm run dev\n"
     echo -e "  • ${CYAN}MinIO Console:${NC} http://localhost:9003 (Login: minioadmin / minioadmin)"
     echo -e "  • ${CYAN}Frontend UI:${NC}   http://localhost:3000"
+
+    if [ -n "$CF_TOKEN" ]; then
+        echo -e "  • ${GREEN}Tunnel Status:${NC} Cloudflare tunnel container is running."
+    else
+        echo -e "  • ${YELLOW}Workflow:${NC} Open http://localhost:3000 to enter your pairing code from cachette.cloud."
+        echo -e "    Upon pairing, the backend writes your tunnel token and connects to your live subdomain."
+        echo -e "    Manual tunnel start command if needed:"
+        echo -e "      ${CYAN}$COMPOSE_CMD --profile tunnel up -d cloudflared${NC}\n"
+    fi
 else
     echo -e "${RED}Invalid selection. Exiting.${NC}"
     exit 1
 fi
+

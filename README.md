@@ -26,26 +26,41 @@ Cachette is a decentralized, self-hosted personal cloud storage platform. It dec
 
 ## Quick Start (Automated Setup)
 
-The repository provides automated setup scripts that check prerequisites, generate `.env` files, build containers, and launch all services.
+The recommended way to start your node is with the automated setup script:
 
-### Prerequisites
-- [Docker Desktop](https://www.docker.com/) (make sure Docker daemon is running)
-- *Optional for local dev*: Python 3.12+, Node.js 20+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/biswajeet-samal/cachette.git
+   cd cachette
+   ```
 
-### Option 1: Windows (PowerShell)
+2. **Run the setup script:**
+   - **Windows (PowerShell):**
+     ```powershell
+     .\setup.ps1
+     ```
+   - **Linux / macOS:**
+     ```bash
+     chmod +x setup.sh
+     ./setup.sh
+     ```
+   *(Select `1` for Full Docker Mode or `2` for Local Development Mode).*
 
-```powershell
-.\setup.ps1
-```
+3. **Pair your node:**
+   - Open **`http://localhost:3000`** in your browser.
+   - Log in to [cachette.cloud](https://cachette.cloud), navigate to **Nodes**, and generate a **6-character Node Pairing Code**.
+   - Enter the pairing code at `http://localhost:3000`.
 
-### Option 2: Linux / macOS / WSL / Git Bash
+4. **Node is live:**
+   - Central provisions your RSA public key and Cloudflare Tunnel credentials.
+   - The backend stores the tunnel token into `CF_TUNNEL_TOKEN` in `.env` and activates the tunnel.
+   - Your node is now live and reachable over HTTPS at **`https://<your-subdomain>.cachette.cloud`**!
 
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-> **Flags:** You can also run non-interactively with `./setup.sh --docker` (full Docker stack) or `./setup.sh --dev` (local development mode).
+> [!TIP]
+> **Manual Tunnel Start:** If your backend runs in a container without Docker socket access or you restart your stack after pairing, start the tunnel at any time with:
+> ```bash
+> docker compose --profile tunnel up -d cloudflared
+> ```
 
 ---
 
@@ -92,10 +107,16 @@ NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
 
 ### 2. Running with Docker Compose (All-in-One)
 
-Build and launch all services (`redis`, `minio`, `app`, `frontend`, `cloudflared`):
+Build and launch core services (`redis`, `minio`, `app`, `frontend`):
 
 ```bash
 docker compose up -d --build
+```
+
+*Once paired (when `CF_TUNNEL_TOKEN` is set in `.env`), launch the full stack including the Cloudflare tunnel with:*
+
+```bash
+docker compose --profile tunnel up -d --build
 ```
 
 ---
@@ -106,6 +127,7 @@ docker compose up -d --build
 ```bash
 docker compose up -d redis minio
 ```
+*(If already paired, you can also start the tunnel container: `docker compose --profile tunnel up -d redis minio cloudflared`)*
 
 #### Start Backend (FastAPI)
 ```bash
@@ -140,8 +162,9 @@ npm run dev
 5. The backend will:
    - Exchange the claim token with Central.
    - Receive your persistent node ID, RSA public key (`public.pem`), and Cloudflare Tunnel token.
-   - Automatically launch the `cloudflared` tunnel container.
-   - Redirect you to your personal storage dashboard.
+   - Persist `CF_TUNNEL_TOKEN` into `.env`.
+   - Start the `cloudflared` tunnel container (or prompt fallback `docker compose --profile tunnel up -d cloudflared`).
+   - Connect you to your personal storage dashboard at `https://<your-subdomain>.cachette.cloud`.
 
 ---
 

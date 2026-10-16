@@ -92,6 +92,16 @@ NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
 # ------------------------------------------------------------------------------
 # 3. Determine Setup Mode
 # ------------------------------------------------------------------------------
+# Check if CF_TUNNEL_TOKEN is already set in .env
+$CfToken = ""
+if (Test-Path ".env") {
+    $line = Get-Content ".env" | Where-Object { $_ -match "^CF_TUNNEL_TOKEN=(.*)$" } | Select-Object -First 1
+    if ($line) {
+        $CfToken = ($line -replace "^CF_TUNNEL_TOKEN=", "").Trim()
+    }
+}
+$HasTunnelToken = -not [string]::IsNullOrWhiteSpace($CfToken)
+
 Write-Host "`n[3/4] Select setup mode:" -ForegroundColor Yellow
 Write-Host "  1) Full Docker Mode (Runs Frontend, Backend, Redis, MinIO via Docker Compose)"
 Write-Host "  2) Local Development Mode (Runs Redis & MinIO in Docker; Python & Next.js locally)"
@@ -103,7 +113,12 @@ if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
 # ------------------------------------------------------------------------------
 if ($choice -eq "1") {
     Write-Host "`n[4/4] Starting all services with Docker Compose..." -ForegroundColor Yellow
-    Invoke-Expression "$ComposeCmd up -d --build"
+    if ($HasTunnelToken) {
+        Write-Host "  Found CF_TUNNEL_TOKEN: starting stack with Cloudflare tunnel profile..." -ForegroundColor Green
+        Invoke-Expression "$ComposeCmd --profile tunnel up -d --build"
+    } else {
+        Invoke-Expression "$ComposeCmd up -d --build"
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`nDocker Compose failed to start services. Please check the error above." -ForegroundColor Red
         exit $LASTEXITCODE
@@ -115,15 +130,29 @@ if ($choice -eq "1") {
     Write-Host "  • Frontend UI:    http://localhost:3000" -ForegroundColor Cyan
     Write-Host "  • Backend API:    http://localhost:8000/docs" -ForegroundColor Cyan
     Write-Host "  • MinIO Console:  http://localhost:9003  (User: minioadmin / Pass: minioadmin)" -ForegroundColor Cyan
-    Write-Host "`nNext Step: Open http://localhost:3000 to pair your node with Central." -ForegroundColor Yellow
+
+    if ($HasTunnelToken) {
+        Write-Host "`nTunnel Status: Cloudflare tunnel is running and connected." -ForegroundColor Green
+        Write-Host "Your node is accessible via your assigned subdomain on cachette.cloud." -ForegroundColor Cyan
+    } else {
+        Write-Host "`nOpen http://localhost:3000 to pair your node. The tunnel starts after pairing." -ForegroundColor Yellow
+        Write-Host "Once paired, your node will be live at its public subdomain." -ForegroundColor Cyan
+        Write-Host "If the tunnel does not start automatically after pairing, run:" -ForegroundColor DarkGray
+        Write-Host "  $ComposeCmd --profile tunnel up -d cloudflared" -ForegroundColor DarkGray
+    }
 
 } elseif ($choice -eq "2") {
     Write-Host "`n[4/4] Setting up Local Development environment..." -ForegroundColor Yellow
 
-    Write-Host "`nStarting supporting containers (Redis & MinIO)..."
-    Invoke-Expression "$ComposeCmd up -d redis minio"
+    if ($HasTunnelToken) {
+        Write-Host "`nStarting supporting containers (Redis, MinIO & Cloudflared tunnel)..."
+        Invoke-Expression "$ComposeCmd --profile tunnel up -d redis minio cloudflared"
+    } else {
+        Write-Host "`nStarting supporting containers (Redis & MinIO)..."
+        Invoke-Expression "$ComposeCmd up -d redis minio"
+    }
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "`nFailed to start supporting containers (redis, minio)." -ForegroundColor Red
+        Write-Host "`nFailed to start supporting containers." -ForegroundColor Red
         exit $LASTEXITCODE
     }
 
@@ -158,4 +187,13 @@ if ($choice -eq "1") {
     Write-Host "  Terminal 2 (Frontend):" -ForegroundColor Cyan
     Write-Host "    cd frontend"
     Write-Host "    npm run dev`n"
+    if ($HasTunnelToken) {
+        Write-Host "Tunnel Status: Cloudflare tunnel container is running." -ForegroundColor Green
+    } else {
+        Write-Host "Workflow: Open http://localhost:3000 to enter your pairing code from cachette.cloud." -ForegroundColor Yellow
+        Write-Host "Upon pairing, the backend writes your tunnel token and connects to your live subdomain." -ForegroundColor Cyan
+        Write-Host "Manual tunnel start command if needed:" -ForegroundColor DarkGray
+        Write-Host "  $ComposeCmd --profile tunnel up -d cloudflared`n" -ForegroundColor DarkGray
+    }
 }
+

@@ -46,12 +46,14 @@ async def pairing_status():
             "tunnel_status": tunnel.get("status", "unpaired"),
             "tunnel_ready": tunnel.get("ready", False),
             "tunnel_error": tunnel.get("error"),
+            "tunnel_command": "docker compose --profile tunnel up -d cloudflared",
         }
     return {
         "paired": False,
         "tunnel_status": "unpaired",
         "tunnel_ready": False,
         "tunnel_error": None,
+        "tunnel_command": "docker compose --profile tunnel up -d cloudflared",
     }
 
 
@@ -109,6 +111,7 @@ async def get_node_session(db: AsyncSession = Depends(get_db)):
         "tunnel_status": tunnel.get("status", "unpaired"),
         "tunnel_ready": tunnel.get("ready", False),
         "tunnel_error": tunnel.get("error"),
+        "tunnel_command": "docker compose --profile tunnel up -d cloudflared",
     }
 
 

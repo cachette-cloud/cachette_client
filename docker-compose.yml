@@ -25,10 +25,14 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    command: tunnel run --token ${CF_TUNNEL_TOKEN}
     restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+    profiles:
+      - tunnel
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - frontend
 
   frontend:
     build: ./frontend

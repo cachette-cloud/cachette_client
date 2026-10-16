@@ -117,6 +117,8 @@ def start_cloudflared(token: str) -> Tuple[bool, str]:
     compose_cmd = cmd_prefix + [
         "-f",
         str(DOCKER_COMPOSE_PATH),
+        "--profile",
+        "tunnel",
         "up",
         "-d",
         "--force-recreate",
@@ -141,9 +143,9 @@ def start_cloudflared(token: str) -> Tuple[bool, str]:
 
         if result.returncode != 0:
             if "Cannot connect to the Docker daemon" in combined_output or "docker API" in combined_output:
-                msg = "Docker daemon is unreachable. Please verify Docker Desktop or dockerd is running."
+                msg = "Docker daemon is unreachable. Run 'docker compose --profile tunnel up -d cloudflared' on your host to start the tunnel."
             else:
-                msg = f"Docker compose up failed (code {result.returncode}): {combined_output[:300]}"
+                msg = f"Docker compose up failed (code {result.returncode}): {combined_output[:300]}. Run 'docker compose --profile tunnel up -d cloudflared' to start manually."
             logger.warning("Cloudflared container startup failed: %s", msg)
             return False, msg
 
@@ -190,6 +192,8 @@ async def verify_cloudflared_health(timeout: float = 30.0, poll_interval: float 
     logs_cmd = cmd_prefix + [
         "-f",
         str(DOCKER_COMPOSE_PATH),
+        "--profile",
+        "tunnel",
         "logs",
         "--tail",
         "60",

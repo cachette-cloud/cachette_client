@@ -40,6 +40,15 @@ def persist_pairing_credentials(data: Dict[str, Any]) -> Dict[str, Any]:
         # Update settings in memory so token verification immediately uses the key
         settings.PUBLIC_KEY = public_key
 
+    # Persist Cloudflare tunnel token to .env files for docker compose
+    cf_token = credentials.get("cf_tunnel_token")
+    if cf_token:
+        try:
+            from app.service.tunnel_service import write_tunnel_token_to_env
+            write_tunnel_token_to_env(cf_token)
+        except Exception as e:
+            logger.error("Failed to write CF_TUNNEL_TOKEN to env files: %s", e)
+
     logger.info("Persisted pairing credentials and public key to local storage")
     return credentials
 
@@ -108,4 +117,5 @@ async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = Non
         "node_id": persisted.get("node_id"),
         "session_token_expires_at": persisted.get("session_token_expires_at"),
         "subdomain": persisted.get("subdomain"),
+        "tunnel_command": "docker compose --profile tunnel up -d cloudflared",
     }
