@@ -29,7 +29,7 @@ import {
   RiExternalLinkLine,
 } from 'react-icons/ri';
 
-const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
+const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette-central.onrender.com';
 
 export default function DashboardPage() {
   const router = useRouter();

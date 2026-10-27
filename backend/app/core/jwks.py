@@ -3,6 +3,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jose import jwt, jwk, JWTError
 
 from app.config import settings
@@ -53,11 +55,24 @@ class JWKSManager:
                 new_keys_by_kid: Dict[str, str] = {}
                 new_all_pems: List[str] = []
 
-                for key_dict in keys_list:
+                for key_entry in keys_list:
                     try:
-                        key_obj = jwk.construct(key_dict, algorithm="RS256")
-                        pem = key_obj.to_pem().decode("utf-8").strip()
-                        kid = key_dict.get("kid")
+                        if isinstance(key_entry, str):
+                            public_key = serialization.load_pem_public_key(key_entry.encode("utf-8"))
+                            if not isinstance(public_key, RSAPublicKey):
+                                raise ValueError("PEM key is not an RSA public key")
+                            pem = public_key.public_bytes(
+                                encoding=serialization.Encoding.PEM,
+                                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                            ).decode("utf-8").strip()
+                            kid = None
+                        elif isinstance(key_entry, dict):
+                            key_obj = jwk.construct(key_entry, algorithm="RS256")
+                            pem = key_obj.to_pem().decode("utf-8").strip()
+                            kid = key_entry.get("kid")
+                        else:
+                            raise ValueError("Key entry must be a PEM string or JWK object")
+
                         if kid:
                             new_keys_by_kid[kid] = pem
                         if pem not in new_all_pems:

@@ -73,7 +73,7 @@ async def test_create_share_view_success(client, auth_headers, test_file):
     assert data["file_id"] == str(test_file.id)
     assert data["access_level"] == "view"
     assert len(data["slug"]) >= 10
-    assert data["url"] == f"https://home.cachette.cloud/s/{data['slug']}"
+    assert data["url"] == f"https://home.cachette-central.onrender.com/s/{data['slug']}"
 
 
 @pytest.mark.asyncio

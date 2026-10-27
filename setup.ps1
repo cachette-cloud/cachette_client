@@ -70,7 +70,7 @@ AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=cachette-files
 CF_TUNNEL_TOKEN=
-CENTRAL_URL=https://cachette.cloud
+CENTRAL_URL=https://cachette-central.onrender.com
 "@ | Out-File -FilePath "backend\.env" -Encoding utf8
     Write-Host "  Created backend\.env" -ForegroundColor Green
 } else {
@@ -82,7 +82,7 @@ if (-not (Test-Path "frontend\.env")) {
     Write-Host "  Creating frontend\.env..." -ForegroundColor Cyan
 @"
 BACKEND_URL=http://127.0.0.1:8000
-NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
+NEXT_PUBLIC_CENTRAL_URL=https://cachette-central.onrender.com
 "@ | Out-File -FilePath "frontend\.env" -Encoding utf8
     Write-Host "  Created frontend\.env" -ForegroundColor Green
 } else {
@@ -164,10 +164,16 @@ if ($choice -eq "1") {
         Write-Host "  Created backend\.venv" -ForegroundColor Green
     }
 
-    & ".\.venv\Scripts\Activate.ps1"
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    alembic upgrade head
+    $VenvPython = "$ProjectRoot\backend\.venv\Scripts\python.exe"
+
+    & $VenvPython -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) { Write-Host "pip upgrade failed" -ForegroundColor Red; exit 1 }
+
+    & $VenvPython -m pip install -r requirements.txt
+    if ($LASTEXITCODE -ne 0) { Write-Host "Dependency install failed" -ForegroundColor Red; exit 1 }
+
+    & $VenvPython -m alembic upgrade head
+    if ($LASTEXITCODE -ne 0) { Write-Host "Alembic migration failed" -ForegroundColor Red; exit 1 }
     Set-Location $ProjectRoot
 
     # Frontend Setup
@@ -190,10 +196,9 @@ if ($choice -eq "1") {
     if ($HasTunnelToken) {
         Write-Host "Tunnel Status: Cloudflare tunnel container is running." -ForegroundColor Green
     } else {
-        Write-Host "Workflow: Open http://localhost:3000 to enter your pairing code from cachette.cloud." -ForegroundColor Yellow
+        Write-Host "Workflow: Open http://localhost:3000 to enter your pairing code from https://cachette-central.onrender.com." -ForegroundColor Yellow
         Write-Host "Upon pairing, the backend writes your tunnel token and connects to your live subdomain." -ForegroundColor Cyan
         Write-Host "Manual tunnel start command if needed:" -ForegroundColor DarkGray
         Write-Host "  $ComposeCmd --profile tunnel up -d cloudflared`n" -ForegroundColor DarkGray
     }
 }
-

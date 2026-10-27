@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     PUBLIC_KEY: str = load_persisted_public_key()
     NODE_ID: str = load_persisted_node_id()
     SUBDOMAIN: str = load_persisted_subdomain()
-    CENTRAL_JWKS_URL: str = "https://cachette.cloud/api/v1/auth/.well-known/jwks.json"
+    CENTRAL_JWKS_URL: str = "https://cachette-central.onrender.com/api/v1/auth/.well-known/jwks.json"
 
     REDIS_URL: str = "redis://localhost:6379"
     GENERAL_BUCKET_CAPACITY: int = 40
@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     MULTIPART_THRESHOLD: int = 5 * 1024 * 1024
     MAX_FILE_SIZE: int = 50 * 1024 * 1024 * 1024
 
-    CENTRAL_URL: str = "http://localhost:9000"
+    CENTRAL_URL: str = "https://cachette-central.onrender.com"
     PAIRING_CREDENTIALS_FILE: str = str(PAIRING_CREDENTIALS_PATH)
 
 

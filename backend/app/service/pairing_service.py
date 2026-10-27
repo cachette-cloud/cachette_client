@@ -73,7 +73,7 @@ async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = Non
     base_url = (central_url or settings.CENTRAL_URL).rstrip("/")
     claim_endpoint = f"{base_url}/api/v1/node-pairing/claim"
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=100.0) as client:
         try:
             response = await client.post(claim_endpoint, json={"pairing_code": pairing_code})
         except httpx.RequestError as e:

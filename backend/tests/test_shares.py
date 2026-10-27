@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
@@ -11,7 +11,7 @@ from app.dependencies import get_s3_service
 from app.main import app
 from app.models.file import File
 from app.models.user import UserCache
-from app.core.jwks import jwks_manager
+from app.core.jwks import JWKSManager, jwks_manager
 
 
 @pytest.fixture
@@ -301,6 +301,26 @@ async def test_jwks_refresh_on_rotated_key(client, test_node_id, create_test_fil
 
 
 @pytest.mark.asyncio
+async def test_jwks_fetch_accepts_pem_string_entries():
+    private_key = rsa.generate_private_key(65537, 2048)
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("utf-8")
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"keys": [public_pem]}
+    http_client = AsyncMock()
+    http_client.__aenter__.return_value = http_client
+    http_client.get.return_value = response
+    manager = JWKSManager(jwks_url="https://central.example/jwks")
+
+    with patch("app.core.jwks.httpx.AsyncClient", return_value=http_client):
+        assert await manager.fetch_keys()
+
+    assert manager._all_pems == [public_pem.strip()]
+
+
+@pytest.mark.asyncio
 async def test_shared_file_access_level_claim_download(client, make_token, test_node_id, create_test_file, mock_s3):
     """Test that access_level='download' sets attachment Content-Disposition."""
     file_id = uuid.uuid4()
@@ -321,4 +341,3 @@ async def test_shared_file_access_level_claim_download(client, make_token, test_
     assert response.headers.get("Content-Disposition") == 'attachment; filename="report.csv"'
     assert response.headers.get("Content-Type").startswith("text/csv")
     assert response.content == b"chunk-1chunk-2"
-

@@ -31,8 +31,7 @@ services:
       - tunnel
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      - frontend
+
 
   frontend:
     build: ./frontend
@@ -41,7 +40,7 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_CENTRAL_URL: https://cachette.cloud
+      NEXT_PUBLIC_CENTRAL_URL: https://cachette-cenrtral.onrender.com
     depends_on:
       - app
 
