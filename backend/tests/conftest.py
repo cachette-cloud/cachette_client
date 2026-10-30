@@ -11,7 +11,7 @@ from jose import jwt
 from app.main import app
 from app.config import settings
 from app.db.session import get_db
-from app.core.redis_client import RedisClient
+from app.core.rate_limiter import reset_all_limiters
 from app.models.user import UserCache
 
 
@@ -156,17 +156,18 @@ async def client(mock_db_session):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # Mock Redis client so tests don't require running Redis instance
-    fake_redis = AsyncMock()
-    fake_redis.check = AsyncMock(return_value=True)
-    fake_redis.get = AsyncMock(return_value=None)
-    fake_redis.keys = AsyncMock(return_value=[])
-    fake_redis.delete = AsyncMock(return_value=True)
-    RedisClient._client = fake_redis
+    # Reset all rate limiters so test executions are clean and isolated
+    await reset_all_limiters()
+
+
+
+
+
+
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
     app.dependency_overrides.clear()
-    RedisClient._client = None
+    await reset_all_limiters()

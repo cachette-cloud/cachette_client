@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.redis_client import RedisClient
+from app.core.rate_limiter import start_rate_limiter_pruning, stop_rate_limiter_pruning
 from app.core.jwks import jwks_manager
 from app.db import engine
 from app.routes.files import router as files_router
@@ -32,9 +32,9 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("SELECT 1"))
     log.info("Startup complete: DB connection verified.")
 
-    log.info("Startup: connecting to Redis...")
-    await RedisClient.connect()
-    log.info("Startup complete: Redis connected.")
+    log.info("Startup: starting in-memory rate limiter...")
+    start_rate_limiter_pruning()
+    log.info("Startup complete: rate limiter active.")
 
     log.info("Startup: ensuring S3 bucket exists...")
     try:
@@ -60,8 +60,8 @@ async def lifespan(app: FastAPI):
     yield
 
     jwks_refresh_task.cancel()
-    await RedisClient.disconnect()
-    log.info("Shutdown complete: Redis disconnected.")
+    await stop_rate_limiter_pruning()
+    log.info("Shutdown complete: rate limiter pruning stopped.")
     await engine.dispose()
     log.info("Shutdown complete: DB engine disposed.")
 
