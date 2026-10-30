@@ -99,7 +99,6 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "https://cachette.cloud",
-        "https://cachette-central.onrender.com",
     ],
     allow_origin_regex=r"^https://.*(\.cachette\.cloud|\.cachette\.central\.onrender\.com)$",
     allow_credentials=True,
