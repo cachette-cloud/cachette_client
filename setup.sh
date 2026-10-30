@@ -85,7 +85,7 @@ AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=cachette-files
 CF_TUNNEL_TOKEN=
-CENTRAL_URL=https://cachette-central.onrender.com
+CENTRAL_URL=https://cachette.cloud
 EOF
     echo -e "  ${GREEN}✔${NC} Created backend/.env"
 else
@@ -97,7 +97,7 @@ if [ ! -f "frontend/.env" ]; then
     echo -e "  Creating ${CYAN}frontend/.env${NC}..."
     cat << 'EOF' > frontend/.env
 BACKEND_URL=http://127.0.0.1:8000
-NEXT_PUBLIC_CENTRAL_URL=https://cachette-central.onrender.com
+NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
 EOF
     echo -e "  ${GREEN}✔${NC} Created frontend/.env"
 else
@@ -233,7 +233,7 @@ elif [ "$SETUP_MODE" == "2" ]; then
     if [ -n "$CF_TOKEN" ]; then
         echo -e "  • ${GREEN}Tunnel Status:${NC} Cloudflare tunnel container is running."
     else
-        echo -e "  • ${YELLOW}Workflow:${NC} Open http://localhost:3000 to enter your pairing code from https://cachette-central.onrender.com."
+        echo -e "  • ${YELLOW}Workflow:${NC} Open http://localhost:3000 to enter your pairing code from https://cachette.cloud."
         echo -e "    Upon pairing, the backend writes your tunnel token and connects to your live subdomain."
         echo -e "    Manual tunnel start command if needed:"
         echo -e "      ${CYAN}$COMPOSE_CMD --profile tunnel up -d cloudflared${NC}\n"

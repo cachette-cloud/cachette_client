@@ -2,7 +2,7 @@
 
 > **Turn any PC, laptop, or server into your own internet-accessible personal cloud storage.**
 
-Cachette is a decentralized, self-hosted personal cloud storage platform. It decouples the control plane (**Central** at [cachette-central.onrender.com](https://cachette-central.onrender.com)) from your local hardware (**Node**), giving you S3-compatible cloud storage with public HTTPS access—**zero port-forwarding, zero dynamic DNS, and zero central byte storage**.
+Cachette is a decentralized, self-hosted personal cloud storage platform. It decouples the control plane (**Central** at [cachette.cloud](https://cachette.cloud)) from your local hardware (**Node**), giving you S3-compatible cloud storage with public HTTPS access—**zero port-forwarding, zero dynamic DNS, and zero central byte storage**.
 
 ---
 
@@ -48,7 +48,7 @@ The recommended way to start your node is with the automated setup script:
 
 3. **Pair your node:**
    - Open **`http://localhost:3000`** in your browser.
-   - Log in to [cachette-central.onrender.com](https://cachette-central.onrender.com), navigate to **Nodes**, and generate a **6-character Node Pairing Code**.
+   - Log in to [cachette.cloud](https://cachette.cloud), navigate to **Nodes**, and generate a **6-character Node Pairing Code**.
    - Enter the pairing code at `http://localhost:3000`.
 
 4. **Node is live:**
@@ -93,14 +93,14 @@ AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=cachette-files
-CENTRAL_URL=https://cachette-central.onrender.com
+CENTRAL_URL=https://cachette.cloud
 CF_TUNNEL_TOKEN=
 ```
 
 #### `frontend/.env`
 ```ini
 BACKEND_URL=http://127.0.0.1:8000
-NEXT_PUBLIC_CENTRAL_URL=https://cachette-central.onrender.com
+NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
 ```
 
 ---
@@ -157,7 +157,7 @@ npm run dev
 
 1. Open **`http://localhost:3000`** in your browser.
 2. If the node is not yet paired, you will see the pairing setup screen.
-3. Log in to [cachette-central.onrender.com](https://cachette-central.onrender.com) and generate a **6-character Node Claim Code**.
+3. Log in to [cachette.cloud](https://cachette.cloud) and generate a **6-character Node Claim Code**.
 4. Enter the code in the local pairing interface.
 5. The backend will:
    - Exchange the claim token with Central.

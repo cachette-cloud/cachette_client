@@ -1,13 +1,16 @@
 import asyncio
+import collections
 import logging
 import os
 import shutil
 import subprocess
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from app.config import (
+    BACKEND_DIR,
     BACKEND_ENV_PATH,
     DOCKER_COMPOSE_PATH,
     PAIRING_CREDENTIALS_PATH,
@@ -24,6 +27,11 @@ _tunnel_state: Dict[str, Any] = {
     "error": None,
     "updated_at": datetime.now(timezone.utc).isoformat(),
 }
+
+# Native cloudflared process and log tracking
+_native_tunnel_process: Optional[subprocess.Popen] = None
+_native_tunnel_logs: collections.deque = collections.deque(maxlen=200)
+_native_reader_thread: Optional[threading.Thread] = None
 
 
 def _update_state(status: str, ready: bool = False, error: Optional[str] = None) -> None:
@@ -73,6 +81,105 @@ def write_tunnel_token_to_env(token: str) -> None:
             logger.info("Successfully updated CF_TUNNEL_TOKEN in %s", env_path)
         except Exception as e:
             logger.error("Failed to write CF_TUNNEL_TOKEN to %s: %s", env_path, e)
+
+
+def get_native_cloudflared_path() -> Optional[Path]:
+    """Locate standalone native cloudflared binary (e.g. from bundled installer or PATH)."""
+    if env_path := os.getenv("CLOUDFLARED_BIN_PATH"):
+        p = Path(env_path)
+        if p.is_file():
+            return p
+
+    candidates = [
+        PROJECT_ROOT / "bin" / "cloudflared.exe",
+        PROJECT_ROOT / "bin" / "cloudflared",
+        BACKEND_DIR / "bin" / "cloudflared.exe",
+        BACKEND_DIR / "bin" / "cloudflared",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+
+    if path_bin := shutil.which("cloudflared"):
+        return Path(path_bin)
+
+    return None
+
+
+def start_native_cloudflared(token: str) -> Tuple[bool, str]:
+    """
+    Start cloudflared as a native host subprocess (no Docker required).
+    """
+    global _native_tunnel_process, _native_reader_thread
+    bin_path = get_native_cloudflared_path()
+    if not bin_path:
+        return False, "Native cloudflared binary not found"
+
+    stop_native_cloudflared()
+
+    cmd = [
+        str(bin_path),
+        "tunnel",
+        "--no-autoupdate",
+        "run",
+        "--token",
+        token,
+    ]
+
+    try:
+        logger.info("Starting native cloudflared binary: %s", " ".join(cmd[:4]))
+        _native_tunnel_logs.clear()
+
+        # Prevent terminal window popup on Windows
+        creationflags = 0
+        if os.name == "nt":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            creationflags=creationflags,
+        )
+        _native_tunnel_process = proc
+
+        def _reader(p: subprocess.Popen):
+            try:
+                for line in iter(p.stdout.readline, ""):
+                    if not line:
+                        break
+                    _native_tunnel_logs.append(line.strip())
+            except Exception:
+                pass
+
+        _native_reader_thread = threading.Thread(target=_reader, args=(proc,), daemon=True)
+        _native_reader_thread.start()
+
+        logger.info("Native cloudflared spawned with PID %s", proc.pid)
+        return True, "Native cloudflared started"
+
+    except Exception as e:
+        msg = f"Failed to start native cloudflared process: {e}"
+        logger.error(msg)
+        return False, msg
+
+
+def stop_native_cloudflared() -> None:
+    """Terminate running native cloudflared subprocess."""
+    global _native_tunnel_process
+    if _native_tunnel_process and _native_tunnel_process.poll() is None:
+        try:
+            logger.info("Terminating native cloudflared process (PID %s)", _native_tunnel_process.pid)
+            _native_tunnel_process.terminate()
+            _native_tunnel_process.wait(timeout=5)
+        except Exception:
+            try:
+                _native_tunnel_process.kill()
+            except Exception:
+                pass
+    _native_tunnel_process = None
 
 
 def _get_docker_compose_cmd() -> Optional[list[str]]:
@@ -182,9 +289,56 @@ def _fetch_cloudflared_logs(logs_cmd: list[str]) -> Tuple[int, str]:
 
 async def verify_cloudflared_health(timeout: float = 30.0, poll_interval: float = 2.0) -> Tuple[bool, str]:
     """
-    Poll cloudflared container logs for registration confirmation.
+    Poll cloudflared logs (native or container) for registration confirmation.
     Returns (True, message) once connected, or (False, error_details) on timeout or explicit failure.
     """
+    success_indicators = [
+        "Registered tunnel connection",
+        "Connection registered",
+        "Connected to",
+        "Updated to new configuration",
+    ]
+    failure_indicators = [
+        "invalid tunnel token",
+        "unauthorized",
+        "tunnel credentials are invalid",
+        "failed to create tunnel",
+    ]
+
+    loop = asyncio.get_event_loop()
+    start_time = loop.time()
+    last_output = ""
+
+    # Branch A: Native subprocess verification
+    if _native_tunnel_process is not None:
+        while (loop.time() - start_time) < timeout:
+            # Check if process exited unexpectedly
+            retcode = _native_tunnel_process.poll()
+            output = "\n".join(_native_tunnel_logs)
+            last_output = output
+
+            if retcode is not None and retcode != 0:
+                msg = f"Native cloudflared exited with error code {retcode}: {output[-200:]}"
+                logger.error(msg)
+                return False, msg
+
+            for indicator in success_indicators:
+                if indicator.lower() in output.lower():
+                    logger.info("Native tunnel connection confirmed: '%s'", indicator)
+                    return True, "Tunnel registered successfully with Cloudflare edge"
+
+            for indicator in failure_indicators:
+                if indicator.lower() in output.lower():
+                    msg = f"Cloudflared authentication failed: {indicator}"
+                    logger.warning(msg)
+                    return False, msg
+
+            await asyncio.sleep(poll_interval)
+
+        msg = f"Timed out waiting for native cloudflared tunnel registration after {int(timeout)}s"
+        return False, msg
+
+    # Branch B: Docker container verification
     cmd_prefix = _get_docker_compose_cmd()
     if not cmd_prefix:
         return False, "Docker command not found"
@@ -200,10 +354,6 @@ async def verify_cloudflared_health(timeout: float = 30.0, poll_interval: float 
         "cloudflared",
     ]
 
-    loop = asyncio.get_event_loop()
-    start_time = loop.time()
-    last_output = ""
-
     while (loop.time() - start_time) < timeout:
         try:
             returncode, output = await loop.run_in_executor(
@@ -213,25 +363,11 @@ async def verify_cloudflared_health(timeout: float = 30.0, poll_interval: float 
             )
             last_output = output
 
-            # Check for positive registration signals from cloudflared
-            success_indicators = [
-                "Registered tunnel connection",
-                "Connection registered",
-                "Connected to",
-                "Updated to new configuration",
-            ]
             for indicator in success_indicators:
                 if indicator.lower() in output.lower():
-                    logger.info("Tunnel connection confirmed in logs: '%s'", indicator)
+                    logger.info("Tunnel connection confirmed in container logs: '%s'", indicator)
                     return True, "Tunnel registered successfully with Cloudflare edge"
 
-            # Check for fatal error signals
-            failure_indicators = [
-                "invalid tunnel token",
-                "unauthorized",
-                "tunnel credentials are invalid",
-                "failed to create tunnel",
-            ]
             for indicator in failure_indicators:
                 if indicator.lower() in output.lower():
                     msg = f"Cloudflared authentication failed: {indicator}"
@@ -239,12 +375,7 @@ async def verify_cloudflared_health(timeout: float = 30.0, poll_interval: float 
                     return False, msg
 
         except Exception as e:
-            logger.exception(
-                "Error checking cloudflared logs [type=%s, args=%r]: %r",
-                type(e).__name__,
-                e.args,
-                e,
-            )
+            logger.exception("Error checking cloudflared container logs: %r", e)
 
         await asyncio.sleep(poll_interval)
 
@@ -259,8 +390,8 @@ async def start_tunnel_workflow(token: str) -> None:
     Asynchronous orchestrator for cloudflared tunnel lifecycle:
     1. Writes token to .env
     2. Updates state to 'starting'
-    3. Runs docker compose up for cloudflared
-    4. Polls logs for up to 30s for connection confirmation
+    3. Prefers native cloudflared binary if found; falls back to Docker Compose
+    4. Polls logs for connection confirmation
     5. Updates state to 'ready' or 'failed'
     """
     if not token:
@@ -272,9 +403,15 @@ async def start_tunnel_workflow(token: str) -> None:
     # 1. Update .env files
     write_tunnel_token_to_env(token)
 
-    # 2. Start container (run blocking subprocess in executor)
     loop = asyncio.get_event_loop()
-    started, start_msg = await loop.run_in_executor(None, start_cloudflared, token)
+
+    # 2. Check for native binary first
+    if get_native_cloudflared_path() is not None:
+        logger.info("Found native cloudflared binary, launching native process...")
+        started, start_msg = await loop.run_in_executor(None, start_native_cloudflared, token)
+    else:
+        logger.info("No native cloudflared binary found, falling back to Docker compose...")
+        started, start_msg = await loop.run_in_executor(None, start_cloudflared, token)
 
     if not started:
         _update_state("failed", False, start_msg)

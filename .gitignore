@@ -12,3 +12,8 @@ pairing_credentials.json
 *.sqlite
 *.sqlite3
 data/
+
+# Native build & installer artifacts
+bin/*.exe
+dist/
+release/

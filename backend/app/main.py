@@ -32,6 +32,31 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("SELECT 1"))
     log.info("Startup complete: DB connection verified.")
 
+    # Ensure DB schema migrations are applied
+    try:
+        from alembic.config import Config
+        from alembic import command
+        from app.config import BACKEND_DIR, settings as app_settings
+        alembic_ini = BACKEND_DIR / "alembic.ini"
+        if alembic_ini.exists():
+            cfg = Config(str(alembic_ini))
+            cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+            cfg.set_main_option("sqlalchemy.url", app_settings.DATABASE_URL)
+            await asyncio.to_thread(command.upgrade, cfg, "head")
+            log.info("Startup complete: DB migrations up-to-date.")
+    except Exception as e:
+        log.warning(f"DB auto-migration note: {e}")
+
+    # Ensure all tables exist as fallback
+    try:
+        from app.db.base import Base
+        import app.models  # noqa: F401
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        log.info("Startup complete: DB schema verified.")
+    except Exception as e:
+        log.warning(f"DB schema verification note: {e}")
+
     log.info("Startup: starting in-memory rate limiter...")
     start_rate_limiter_pruning()
     log.info("Startup complete: rate limiter active.")
@@ -73,9 +98,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://cachette.cloud",
         "https://cachette-central.onrender.com",
     ],
-    allow_origin_regex=r"^https://.*\.cachette\.central\.onrender\.com$",
+    allow_origin_regex=r"^https://.*(\.cachette\.cloud|\.cachette\.central\.onrender\.com)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,3 +122,10 @@ app.include_router(shares_router, prefix="/api/v1")
 app.include_router(public_slug_router)
 app.include_router(public_slug_router, prefix="/api/v1")
 
+# ----------- STATIC FRONTEND ------------ #
+from fastapi.staticfiles import StaticFiles
+from app.config import PROJECT_ROOT
+
+frontend_out = PROJECT_ROOT / "frontend" / "out"
+if frontend_out.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_out), html=True), name="frontend")

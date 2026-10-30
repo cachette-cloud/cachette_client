@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -133,6 +134,7 @@ async def test_verify_cloudflared_health_invalid_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_start_tunnel_workflow(monkeypatch):
     monkeypatch.setattr(tunnel_service, "write_tunnel_token_to_env", lambda token: None)
+    monkeypatch.setattr(tunnel_service, "get_native_cloudflared_path", lambda: None)
     monkeypatch.setattr(tunnel_service, "start_cloudflared", lambda token: (True, "Started"))
     monkeypatch.setattr(tunnel_service, "verify_cloudflared_health", AsyncMock(return_value=(True, "Connected")))
 
@@ -147,6 +149,7 @@ async def test_start_tunnel_workflow(monkeypatch):
 @pytest.mark.asyncio
 async def test_start_tunnel_workflow_failure(monkeypatch):
     monkeypatch.setattr(tunnel_service, "write_tunnel_token_to_env", lambda token: None)
+    monkeypatch.setattr(tunnel_service, "get_native_cloudflared_path", lambda: None)
     monkeypatch.setattr(tunnel_service, "start_cloudflared", lambda token: (False, "Docker daemon down"))
 
     await tunnel_service.start_tunnel_workflow("test_token")
@@ -186,3 +189,35 @@ async def test_restart_tunnel_endpoint(monkeypatch):
         assert res.status_code == 200
         data = res.json()
         assert data["status"] == "starting"
+
+
+@pytest.mark.asyncio
+async def test_native_cloudflared_workflow(monkeypatch, tmp_path):
+    """Verify native cloudflared binary detection and execution without Docker."""
+    fake_bin = tmp_path / "cloudflared.exe"
+    fake_bin.write_text("fake binary", encoding="utf-8")
+
+    monkeypatch.setattr(tunnel_service, "get_native_cloudflared_path", lambda: fake_bin)
+
+    # Mock subprocess.Popen
+    mock_proc = MagicMock()
+    mock_proc.pid = 9999
+    mock_proc.poll.return_value = None
+    mock_proc.stdout.readline.side_effect = [
+        "2026-10-30 INF Registered tunnel connection\n",
+        "",
+    ]
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: mock_proc)
+
+    # Start workflow
+    await tunnel_service.start_tunnel_workflow("token_native_xyz")
+
+    status = tunnel_service.get_tunnel_status()
+    assert status["status"] == "ready"
+    assert status["ready"] is True
+    assert status["error"] is None
+
+    # Test clean stopping
+    tunnel_service.stop_native_cloudflared()
+    assert tunnel_service._native_tunnel_process is None

@@ -1,13 +1,19 @@
 import json
 import os
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PAIRING_CREDENTIALS_PATH = Path(os.getenv("PAIRING_CREDENTIALS_PATH", "pairing_credentials.json"))
 PUBLIC_PEM_PATH = Path(os.getenv("PUBLIC_PEM_PATH", "public.pem"))
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-PROJECT_ROOT = BACKEND_DIR.parent
+if getattr(sys, "frozen", False):
+    BACKEND_DIR = Path(sys.executable).resolve().parent
+    PROJECT_ROOT = BACKEND_DIR.parent
+else:
+    BACKEND_DIR = Path(__file__).resolve().parent.parent
+    PROJECT_ROOT = BACKEND_DIR.parent
+
 ROOT_ENV_PATH = PROJECT_ROOT / ".env"
 BACKEND_ENV_PATH = BACKEND_DIR / ".env"
 DOCKER_COMPOSE_PATH = PROJECT_ROOT / "docker-compose.yml"
@@ -36,6 +42,9 @@ def load_persisted_public_key() -> str:
                 return f.read()
         except Exception:
             pass
+
+    return ""
+
 
 def load_persisted_node_id() -> str:
     """
@@ -98,7 +107,7 @@ class Settings(BaseSettings):
     PUBLIC_KEY: str = load_persisted_public_key()
     NODE_ID: str = load_persisted_node_id()
     SUBDOMAIN: str = load_persisted_subdomain()
-    CENTRAL_JWKS_URL: str = "https://cachette-central.onrender.com/api/v1/auth/.well-known/jwks.json"
+    CENTRAL_JWKS_URL: str = "https://cachette.cloud/api/v1/auth/.well-known/jwks.json"
 
     REDIS_URL: str = "redis://localhost:6379"
     GENERAL_BUCKET_CAPACITY: int = 40
@@ -114,7 +123,7 @@ class Settings(BaseSettings):
     MULTIPART_THRESHOLD: int = 5 * 1024 * 1024
     MAX_FILE_SIZE: int = 50 * 1024 * 1024 * 1024
 
-    CENTRAL_URL: str = "https://cachette-central.onrender.com"
+    CENTRAL_URL: str = "https://cachette.cloud"
     PAIRING_CREDENTIALS_FILE: str = str(PAIRING_CREDENTIALS_PATH)
 
 
