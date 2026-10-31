@@ -40,7 +40,7 @@ def persist_pairing_credentials(data: Dict[str, Any]) -> Dict[str, Any]:
         # Update settings in memory so token verification immediately uses the key
         settings.PUBLIC_KEY = public_key
 
-    # Persist Cloudflare tunnel token to .env files for docker compose
+    # Persist Cloudflare tunnel token to .env files 
     cf_token = credentials.get("cf_tunnel_token")
     if cf_token:
         try:
@@ -117,5 +117,5 @@ async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = Non
         "node_id": persisted.get("node_id"),
         "session_token_expires_at": persisted.get("session_token_expires_at"),
         "subdomain": persisted.get("subdomain"),
-        "tunnel_command": "docker compose --profile tunnel up -d cloudflared",
+        "tunnel_command": "Managed natively by Cachette supervisor",
     }

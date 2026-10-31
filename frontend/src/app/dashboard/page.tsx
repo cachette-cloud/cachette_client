@@ -1,16 +1,24 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { motion } from 'motion/react';
-import { useAuth } from '@/lib/auth-context';
-import { apiListDirectory, apiDeleteFile, apiCreateFolder, type FileOut, type FolderOut } from '@/lib/api';
-import Sidebar from '@/components/dashboard/sidebar';
-import Breadcrumb, { type BreadcrumbItem } from '@/components/dashboard/breadcrumb';
-import FileGrid from '@/components/dashboard/file-grid';
-import UploadButton from '@/components/dashboard/upload-button';
-import ShareModal from '@/components/dashboard/share-modal';
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { motion } from "motion/react";
+import { useAuth } from "@/lib/auth-context";
+import {
+  apiListDirectory,
+  apiDeleteFile,
+  apiCreateFolder,
+  type FileOut,
+  type FolderOut,
+} from "@/lib/api";
+import Sidebar from "@/components/dashboard/sidebar";
+import Breadcrumb, {
+  type BreadcrumbItem,
+} from "@/components/dashboard/breadcrumb";
+import FileGrid from "@/components/dashboard/file-grid";
+import UploadButton from "@/components/dashboard/upload-button";
+import ShareModal from "@/components/dashboard/share-modal";
 import {
   Dialog,
   DialogContent,
@@ -18,8 +26,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   RiSearchLine,
   RiFolderAddLine,
@@ -27,9 +35,10 @@ import {
   RiAlertLine,
   RiErrorWarningLine,
   RiExternalLinkLine,
-} from 'react-icons/ri';
+} from "react-icons/ri";
 
-const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette-central.onrender.com';
+const CENTRAL_URL =
+  process.env.NEXT_PUBLIC_CENTRAL_URL || "https://cachette.cloud";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -64,15 +73,15 @@ export default function DashboardPage() {
 
   // Rename state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [renameType, setRenameType] = useState<'file' | 'folder' | null>(null);
+  const [renameType, setRenameType] = useState<"file" | "folder" | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
-  const [renameName, setRenameName] = useState('');
+  const [renameName, setRenameName] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
 
   // New folder state
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderName, setNewFolderName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [folderError, setFolderError] = useState<string | null>(null);
 
@@ -84,11 +93,11 @@ export default function DashboardPage() {
     try {
       await apiCreateFolder(newFolderName.trim(), currentFolderId);
       setNewFolderDialogOpen(false);
-      setNewFolderName('');
+      setNewFolderName("");
       loadDirectory(currentFolderId);
     } catch (err: any) {
-      console.error('Failed to create folder:', err);
-      setFolderError(err.detail || 'Failed to create folder');
+      console.error("Failed to create folder:", err);
+      setFolderError(err.detail || "Failed to create folder");
     } finally {
       setCreatingFolder(false);
     }
@@ -115,11 +124,14 @@ export default function DashboardPage() {
             return prev.slice(0, existingIdx + 1);
           }
           // Going deeper
-          return [...prev, { id: listing.folder!.id, name: listing.folder!.name }];
+          return [
+            ...prev,
+            { id: listing.folder!.id, name: listing.folder!.name },
+          ];
         });
       }
     } catch (err) {
-      console.error('Failed to load directory:', err);
+      console.error("Failed to load directory:", err);
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +140,7 @@ export default function DashboardPage() {
   // Auth guard: redirect to pairing screen if node is unpaired
   useEffect(() => {
     if (!authLoading && !isPaired) {
-      router.push('/auth');
+      router.push("/auth");
     }
   }, [authLoading, isPaired, router]);
 
@@ -159,7 +171,7 @@ export default function DashboardPage() {
       await apiDeleteFile(fileToDelete);
       loadDirectory(currentFolderId);
     } catch (err) {
-      console.error('Delete failed:', err);
+      console.error("Delete failed:", err);
     } finally {
       setDeleting(false);
       setDeleteDialogOpen(false);
@@ -176,11 +188,11 @@ export default function DashboardPage() {
     if (!folderToDelete) return;
     setDeletingFolder(true);
     try {
-      const { apiDeleteFolder } = await import('@/lib/api');
+      const { apiDeleteFolder } = await import("@/lib/api");
       await apiDeleteFolder(folderToDelete);
       loadDirectory(currentFolderId);
     } catch (err) {
-      console.error('Folder delete failed:', err);
+      console.error("Folder delete failed:", err);
     } finally {
       setDeletingFolder(false);
       setDeleteFolderDialogOpen(false);
@@ -189,7 +201,7 @@ export default function DashboardPage() {
   };
 
   const handleRenameFileClick = (fileId: string, currentName: string) => {
-    setRenameType('file');
+    setRenameType("file");
     setRenameTargetId(fileId);
     setRenameName(currentName);
     setRenameError(null);
@@ -197,7 +209,7 @@ export default function DashboardPage() {
   };
 
   const handleRenameFolderClick = (folderId: string, currentName: string) => {
-    setRenameType('folder');
+    setRenameType("folder");
     setRenameTargetId(folderId);
     setRenameName(currentName);
     setRenameError(null);
@@ -210,8 +222,8 @@ export default function DashboardPage() {
     setRenaming(true);
     setRenameError(null);
     try {
-      const { apiRenameFile, apiRenameFolder } = await import('@/lib/api');
-      if (renameType === 'file') {
+      const { apiRenameFile, apiRenameFolder } = await import("@/lib/api");
+      if (renameType === "file") {
         await apiRenameFile(renameTargetId, renameName.trim());
       } else {
         await apiRenameFolder(renameTargetId, renameName.trim());
@@ -219,8 +231,8 @@ export default function DashboardPage() {
       setRenameDialogOpen(false);
       loadDirectory(currentFolderId);
     } catch (err: any) {
-      console.error('Rename failed:', err);
-      setRenameError(err.detail || 'Failed to rename item');
+      console.error("Rename failed:", err);
+      setRenameError(err.detail || "Failed to rename item");
     } finally {
       setRenaming(false);
     }
@@ -228,11 +240,11 @@ export default function DashboardPage() {
 
   const handleDownloadFile = async (fileId: string) => {
     try {
-      const { apiDownloadFile } = await import('@/lib/api');
+      const { apiDownloadFile } = await import("@/lib/api");
       await apiDownloadFile(fileId);
     } catch (err) {
-      console.error('Download failed:', err);
-      alert('Failed to start download');
+      console.error("Download failed:", err);
+      alert("Failed to start download");
     }
   };
 
@@ -248,10 +260,10 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-      <Sidebar 
-        activeItem="files" 
-        isOpen={mobileSidebarOpen} 
-        onClose={() => setMobileSidebarOpen(false)} 
+      <Sidebar
+        activeItem="files"
+        isOpen={mobileSidebarOpen}
+        onClose={() => setMobileSidebarOpen(false)}
       />
 
       {/* Main content */}
@@ -262,7 +274,8 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 min-w-0">
               <RiErrorWarningLine className="w-4 h-4 text-red-400 shrink-0" />
               <span className="truncate">
-                Session expired — please re-pair this node from the central dashboard.
+                Session expired — please re-pair this node from the central
+                dashboard.
               </span>
             </div>
             <Link
@@ -280,7 +293,8 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 min-w-0">
               <RiAlertLine className="w-4 h-4 text-amber-400 shrink-0" />
               <span className="truncate">
-                Node session token expires within 24 hours. Reconnect from central to ensure uninterrupted access.
+                Node session token expires within 24 hours. Reconnect from
+                central to ensure uninterrupted access.
               </span>
             </div>
             <a
@@ -313,7 +327,10 @@ export default function DashboardPage() {
             </button>
 
             <div className="min-w-0 flex-1">
-              <Breadcrumb items={breadcrumbs} onNavigate={handleBreadcrumbNavigate} />
+              <Breadcrumb
+                items={breadcrumbs}
+                onNavigate={handleBreadcrumbNavigate}
+              />
             </div>
           </div>
 
@@ -371,9 +388,12 @@ export default function DashboardPage() {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="bg-[#141414] border-white/[0.08] max-w-[92vw] sm:max-w-sm rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-white text-[15px]">Delete File</DialogTitle>
+            <DialogTitle className="text-white text-[15px]">
+              Delete File
+            </DialogTitle>
             <DialogDescription className="text-white/40 text-[13px]">
-              This action cannot be undone. The file will be permanently removed.
+              This action cannot be undone. The file will be permanently
+              removed.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0 mt-3">
@@ -389,7 +409,7 @@ export default function DashboardPage() {
               disabled={deleting}
               className="bg-red-500/20 text-red-400 hover:bg-red-500/30 border-0 text-[13px]"
             >
-              {deleting ? 'Deleting...' : 'Delete'}
+              {deleting ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -400,7 +420,9 @@ export default function DashboardPage() {
         <DialogContent className="bg-[#141414] border-white/[0.08] max-w-[92vw] sm:max-w-sm rounded-2xl">
           <form onSubmit={handleCreateFolder}>
             <DialogHeader>
-              <DialogTitle className="text-white text-[15px]">New Folder</DialogTitle>
+              <DialogTitle className="text-white text-[15px]">
+                New Folder
+              </DialogTitle>
               <DialogDescription className="text-white/40 text-[13px]">
                 Create a new folder in the current directory.
               </DialogDescription>
@@ -432,7 +454,7 @@ export default function DashboardPage() {
                 disabled={creatingFolder || !newFolderName.trim()}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 text-[13px]"
               >
-                {creatingFolder ? 'Creating...' : 'Create'}
+                {creatingFolder ? "Creating..." : "Create"}
               </Button>
             </DialogFooter>
           </form>
@@ -440,12 +462,18 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* Delete folder confirmation dialog */}
-      <Dialog open={deleteFolderDialogOpen} onOpenChange={setDeleteFolderDialogOpen}>
+      <Dialog
+        open={deleteFolderDialogOpen}
+        onOpenChange={setDeleteFolderDialogOpen}
+      >
         <DialogContent className="bg-[#141414] border-white/[0.08] max-w-[92vw] sm:max-w-sm rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-white text-[15px]">Delete Folder</DialogTitle>
+            <DialogTitle className="text-white text-[15px]">
+              Delete Folder
+            </DialogTitle>
             <DialogDescription className="text-white/40 text-[13px]">
-              This action cannot be undone. The folder and all its contents will be permanently removed.
+              This action cannot be undone. The folder and all its contents will
+              be permanently removed.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0 mt-3">
@@ -461,7 +489,7 @@ export default function DashboardPage() {
               disabled={deletingFolder}
               className="bg-red-500/20 text-red-400 hover:bg-red-500/30 border-0 text-[13px]"
             >
-              {deletingFolder ? 'Deleting...' : 'Delete'}
+              {deletingFolder ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -473,7 +501,7 @@ export default function DashboardPage() {
           <form onSubmit={handleRenameSubmit}>
             <DialogHeader>
               <DialogTitle className="text-white text-[15px]">
-                Rename {renameType === 'file' ? 'File' : 'Folder'}
+                Rename {renameType === "file" ? "File" : "Folder"}
               </DialogTitle>
               <DialogDescription className="text-white/40 text-[13px] hidden">
                 Enter a new name for the item.
@@ -506,7 +534,7 @@ export default function DashboardPage() {
                 disabled={renaming || !renameName.trim()}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 text-[13px]"
               >
-                {renaming ? 'Saving...' : 'Save'}
+                {renaming ? "Saving..." : "Save"}
               </Button>
             </DialogFooter>
           </form>

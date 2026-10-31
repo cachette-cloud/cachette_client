@@ -1,3 +1,4 @@
+import math
 from uuid import UUID
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -61,17 +62,31 @@ def get_s3_service() -> S3Service:
 
 
 def rate_limit(limiter: Token_Bucket_Rate_Limiter, get_identifier):
+    """Rate limit dependency returning 429 with calculated Retry-After header on denial."""
     async def dependency(request: Request):
         identifier = get_identifier(request)
-        if not await limiter.check(identifier):
-            raise HTTPException(status_code=429, detail="Too many requests", headers={"Retry-After": "1"})
+        allowed, remaining, retry_after = limiter.allow(identifier)
+        if not allowed:
+            retry_seconds = max(1, math.ceil(retry_after))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests",
+                headers={"Retry-After": str(retry_seconds)},
+            )
     return dependency
 
 
 def rate_limit_user(limiter: Token_Bucket_Rate_Limiter):
+    """Rate limit dependency per user returning 429 with calculated Retry-After header on denial."""
     async def dependency(current_user: UserCache = Depends(get_current_node_user)):
-        if not await limiter.check(str(current_user.id)):
-            raise HTTPException(status_code=429, detail="Too many requests", headers={"Retry-After": "1"})
+        allowed, remaining, retry_after = limiter.allow(str(current_user.id))
+        if not allowed:
+            retry_seconds = max(1, math.ceil(retry_after))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests",
+                headers={"Retry-After": str(retry_seconds)},
+            )
     return dependency
 
 
@@ -99,4 +114,12 @@ shared_ip_limiter = Token_Bucket_Rate_Limiter(
     capacity=60,
     refill_rate=1.0,
     key_prefix="ratelimit:shared:ip",
+)
+
+
+# IP-keyed auth rate limiter (e.g. 5 requests capacity, 0.2 refill/sec -> 1 per 5s)
+auth_limiter = Token_Bucket_Rate_Limiter(
+    capacity=5,
+    refill_rate=0.2,
+    key_prefix="ratelimit:auth:ip",
 )

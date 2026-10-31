@@ -11,7 +11,7 @@ from jose import jwt
 from app.main import app
 from app.config import settings
 from app.db.session import get_db
-from app.core.redis_client import RedisClient
+from app.core.rate_limiter import default_rate_limiter
 from app.models.user import UserCache
 
 
@@ -38,9 +38,14 @@ def setup_test_public_key(rsa_keypair):
     """Automatically set settings.PUBLIC_KEY to the test public key for all tests."""
     _, public_pem = rsa_keypair
     original_key = settings.PUBLIC_KEY
+    original_auto_download = settings.AUTO_DOWNLOAD_BINARIES
     settings.PUBLIC_KEY = public_pem
+    settings.AUTO_DOWNLOAD_BINARIES = False
+    default_rate_limiter.clear()
     yield
     settings.PUBLIC_KEY = original_key
+    settings.AUTO_DOWNLOAD_BINARIES = original_auto_download
+    default_rate_limiter.clear()
 
 
 @pytest.fixture
@@ -150,23 +155,14 @@ async def mock_db_session():
 
 @pytest_asyncio.fixture(scope="function")
 async def client(mock_db_session):
-    """Async HTTP test client with mocked DB session and bypass for Redis."""
+    """Async HTTP test client with mocked DB session and in-memory rate limiter."""
     async def override_get_db():
         yield mock_db_session
 
     app.dependency_overrides[get_db] = override_get_db
-
-    # Mock Redis client so tests don't require running Redis instance
-    fake_redis = AsyncMock()
-    fake_redis.check = AsyncMock(return_value=True)
-    fake_redis.get = AsyncMock(return_value=None)
-    fake_redis.keys = AsyncMock(return_value=[])
-    fake_redis.delete = AsyncMock(return_value=True)
-    RedisClient._client = fake_redis
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
     app.dependency_overrides.clear()
-    RedisClient._client = None
