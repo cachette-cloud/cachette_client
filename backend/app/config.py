@@ -10,7 +10,6 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = BACKEND_DIR.parent
 ROOT_ENV_PATH = PROJECT_ROOT / ".env"
 BACKEND_ENV_PATH = BACKEND_DIR / ".env"
-DOCKER_COMPOSE_PATH = PROJECT_ROOT / "docker-compose.yml"
 
 
 def load_persisted_public_key() -> str:
@@ -36,6 +35,9 @@ def load_persisted_public_key() -> str:
                 return f.read()
         except Exception:
             pass
+
+    return ""
+
 
 def load_persisted_node_id() -> str:
     """
@@ -98,23 +100,34 @@ class Settings(BaseSettings):
     PUBLIC_KEY: str = load_persisted_public_key()
     NODE_ID: str = load_persisted_node_id()
     SUBDOMAIN: str = load_persisted_subdomain()
-    CENTRAL_JWKS_URL: str = "https://cachette-central.onrender.com/api/v1/auth/.well-known/jwks.json"
+    CENTRAL_JWKS_URL: str = "https://cachette.cloud/api/v1/auth/.well-known/jwks.json"
 
-    REDIS_URL: str = "redis://localhost:6379"
+    # Runtime native supervisor & data directories
+    CACHETTE_DATA_DIR: str = str(PROJECT_ROOT / "data")
+    MINIO_PORT: int = 9002
+    MINIO_CONSOLE_PORT: int = 9003
+    MINIO_ROOT_USER: str = "minioadmin"
+    MINIO_ROOT_PASSWORD: str = "minioadmin"
+    AUTO_DOWNLOAD_BINARIES: bool = True
+
+    # In-memory rate limiting configuration
     GENERAL_BUCKET_CAPACITY: int = 40
     GENERAL_BUCKET_REFILL_RATE: float = 1 / 2
+    RATE_LIMIT_SHARDS: int = 32
+    RATE_LIMIT_SWEEP_INTERVAL_SECONDS: float = 60.0
+    RATE_LIMIT_MAX_KEYS_PER_SHARD: int = 10000
 
     AWS_REGION: str = "us-east-1"
     AWS_ACCESS_KEY_ID: str | None = "minioadmin"
     AWS_SECRET_ACCESS_KEY: str | None = "minioadmin"
 
-    S3_ENDPOINT_URL: str | None = "http://localhost:9002"
+    S3_ENDPOINT_URL: str | None = "http://127.0.0.1:9002"
     S3_BUCKET_NAME: str = "cachette-files"
 
     MULTIPART_THRESHOLD: int = 5 * 1024 * 1024
     MAX_FILE_SIZE: int = 50 * 1024 * 1024 * 1024
 
-    CENTRAL_URL: str = "https://cachette-central.onrender.com"
+    CENTRAL_URL: str = "https://cachette.cloud"
     PAIRING_CREDENTIALS_FILE: str = str(PAIRING_CREDENTIALS_PATH)
 
 

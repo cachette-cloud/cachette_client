@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   motion,
   AnimatePresence,
   useMotionValue,
   useTransform,
   useSpring,
-} from 'motion/react';
-import { useAuth } from '@/lib/auth-context';
-import { apiClaimPairing } from '@/lib/api';
-import DarkVeil from '@/components/ui/DarkVeil';
+} from "motion/react";
+import { useAuth } from "@/lib/auth-context";
+import { apiClaimPairing } from "@/lib/api";
+import DarkVeil from "@/components/ui/DarkVeil";
 import {
   RiKey2Line,
   RiArrowRightLine,
@@ -24,9 +24,10 @@ import {
   RiClipboardLine,
   RiArrowLeftLine,
   RiErrorWarningLine,
-} from 'react-icons/ri';
+} from "react-icons/ri";
 
-const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette-central.onrender.com';
+const CENTRAL_URL =
+  process.env.NEXT_PUBLIC_CENTRAL_URL || "https://cachette.cloud";
 
 export default function SleekAuthPage() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function SleekAuthPage() {
     refreshSession,
   } = useAuth();
 
-  const [connectionCode, setConnectionCode] = useState('');
+  const [connectionCode, setConnectionCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -83,7 +84,7 @@ export default function SleekAuthPage() {
   // Redirect to dashboard immediately if authenticated and ready
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.push('/dashboard');
+      router.push("/dashboard");
     }
   }, [authLoading, isAuthenticated, router]);
 
@@ -107,12 +108,17 @@ export default function SleekAuthPage() {
     try {
       await apiClaimPairing(cleanCode);
       const session = await refreshSession();
-      if (session?.paired && (session?.tunnel_ready || session?.tunnel_status === 'ready')) {
-        router.push('/dashboard');
+      if (
+        session?.paired &&
+        (session?.tunnel_ready || session?.tunnel_status === "ready")
+      ) {
+        router.push("/dashboard");
       }
     } catch (err: any) {
       setErrorMessage(
-        err?.detail || err?.message || 'Invalid or expired node connection code.'
+        err?.detail ||
+          err?.message ||
+          "Invalid or expired node connection code.",
       );
     } finally {
       setSubmitting(false);
@@ -145,41 +151,41 @@ export default function SleekAuthPage() {
   const getStatusBadge = () => {
     if (isSessionExpired) {
       return {
-        label: 'SESSION EXPIRED',
-        color: '#FFB800',
+        label: "SESSION EXPIRED",
+        color: "#FFB800",
         pulse: true,
-        desc: 'Re-authorization required',
+        desc: "Re-authorization required",
       };
     }
-    if (tunnelStatus === 'failed') {
+    if (tunnelStatus === "failed") {
       return {
-        label: 'TUNNEL OFFLINE',
-        color: '#FF4D4D',
+        label: "TUNNEL OFFLINE",
+        color: "#FF4D4D",
         pulse: true,
-        desc: 'Bridge disconnected',
+        desc: "Bridge disconnected",
       };
     }
-    if (isPaired && (tunnelStatus === 'starting' || !tunnelReady)) {
+    if (isPaired && (tunnelStatus === "starting" || !tunnelReady)) {
       return {
-        label: 'SYNCHRONIZING',
-        color: '#8116E0',
+        label: "SYNCHRONIZING",
+        color: "#8116E0",
         pulse: true,
-        desc: 'Establishing secure tunnel',
+        desc: "Establishing secure tunnel",
       };
     }
-    if (isPaired && (tunnelReady || tunnelStatus === 'ready')) {
+    if (isPaired && (tunnelReady || tunnelStatus === "ready")) {
       return {
-        label: 'NODE ONLINE',
-        color: '#D0FF00',
+        label: "NODE ONLINE",
+        color: "#D0FF00",
         pulse: false,
-        desc: 'Cluster encrypted',
+        desc: "Cluster encrypted",
       };
     }
     return {
-      label: 'NODE STANDBY',
-      color: '#D0FF00',
+      label: "NODE STANDBY",
+      color: "#D0FF00",
       pulse: true,
-      desc: 'Ready for connection',
+      desc: "Ready for connection",
     };
   };
 
@@ -237,7 +243,7 @@ export default function SleekAuthPage() {
           style={{
             rotateX,
             rotateY,
-            transformStyle: 'preserve-3d',
+            transformStyle: "preserve-3d",
           }}
           initial={{ opacity: 0, scale: 0.94, y: 24 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -250,7 +256,7 @@ export default function SleekAuthPage() {
               background: useTransform(
                 [glareX, glareY],
                 ([x, y]) =>
-                  `radial-gradient(circle 280px at ${x}px ${y}px, rgba(254, 255, 252, 0.08), transparent 75%)`
+                  `radial-gradient(circle 280px at ${x}px ${y}px, rgba(254, 255, 252, 0.08), transparent 75%)`,
               ),
             }}
             className="absolute inset-0 pointer-events-none transition-opacity duration-300"
@@ -267,7 +273,11 @@ export default function SleekAuthPage() {
             <motion.div
               className="relative flex items-center justify-center mb-4"
               animate={{ y: [0, -3, 0] }}
-              transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut' }}
+              transition={{
+                repeat: Infinity,
+                duration: 4.5,
+                ease: "easeInOut",
+              }}
             >
               {/* Back subtle glow halo */}
               <div className="absolute w-20 h-20 rounded-full bg-gradient-to-r from-[#8116E0]/40 to-[#D0FF00]/30 blur-2xl pointer-events-none" />
@@ -292,7 +302,8 @@ export default function SleekAuthPage() {
               Node Authentication
             </h1>
             <p className="text-[12px] text-[#FEFFFC]/50 text-center max-w-[270px] mt-1.5 leading-relaxed font-normal">
-              Enter your pairing code to unlock and bind this secure enclave node.
+              Enter your pairing code to unlock and bind this secure enclave
+              node.
             </p>
 
             {/* Connection Status Pill */}
@@ -317,14 +328,16 @@ export default function SleekAuthPage() {
               </span>
               <span className="text-[#FEFFFC]/20 text-[10px]">•</span>
               <span className="text-[10.5px] font-mono text-[#FEFFFC]/45 truncate max-w-[130px]">
-                {nodeInfo?.node_id ? `ID: ${nodeInfo.node_id.slice(0, 8)}` : status.desc}
+                {nodeInfo?.node_id
+                  ? `ID: ${nodeInfo.node_id.slice(0, 8)}`
+                  : status.desc}
               </span>
             </div>
           </div>
 
           {/* ── Conditional Views ── */}
           {/* 1. If Tunnel Starting */}
-          {isPaired && !isSessionExpired && tunnelStatus === 'starting' && (
+          {isPaired && !isSessionExpired && tunnelStatus === "starting" && (
             <div className="space-y-4 py-2">
               <div className="p-4 rounded-2xl bg-[#000000]/50 border border-[#8116E0]/30 text-center space-y-2">
                 <div className="flex justify-center">
@@ -341,7 +354,7 @@ export default function SleekAuthPage() {
               <motion.button
                 whileHover={{ scale: 1.015 }}
                 whileTap={{ scale: 0.985 }}
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push("/dashboard")}
                 type="button"
                 className="w-full h-11 rounded-2xl bg-[#131210] hover:bg-[#131210]/90 border border-[#FEFFFC]/[0.12] text-[#FEFFFC]/80 hover:text-[#FEFFFC] text-[13px] font-medium flex items-center justify-center transition-colors"
               >
@@ -351,7 +364,7 @@ export default function SleekAuthPage() {
           )}
 
           {/* 2. If Tunnel Failed */}
-          {isPaired && !isSessionExpired && tunnelStatus === 'failed' && (
+          {isPaired && !isSessionExpired && tunnelStatus === "failed" && (
             <div className="space-y-4 py-2">
               <div className="p-3.5 rounded-2xl bg-[#FF4D4D]/10 border border-[#FF4D4D]/25 space-y-1.5 text-center">
                 <div className="flex items-center justify-center gap-1.5 text-[#FF6B6B] text-[12px] font-semibold">
@@ -359,7 +372,7 @@ export default function SleekAuthPage() {
                   <span>Tunnel Start Failure</span>
                 </div>
                 <p className="text-[11px] text-[#FFB3B3]/80 font-mono truncate px-2">
-                  {tunnelError || 'Check Docker daemon & edge connection'}
+                  {tunnelError || "Check network & tunnel connection"}
                 </p>
               </div>
 
@@ -385,7 +398,7 @@ export default function SleekAuthPage() {
               </motion.button>
 
               <button
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push("/dashboard")}
                 type="button"
                 className="w-full text-center text-[11px] text-[#FEFFFC]/40 hover:text-[#FEFFFC]/70 transition-colors"
               >
@@ -439,7 +452,9 @@ export default function SleekAuthPage() {
                     spellCheck="false"
                     placeholder="ENTER NODE KEY"
                     value={connectionCode}
-                    onChange={(e) => setConnectionCode(e.target.value.toUpperCase())}
+                    onChange={(e) =>
+                      setConnectionCode(e.target.value.toUpperCase())
+                    }
                     className="w-full h-12 pl-10 pr-4 rounded-2xl bg-[#000000]/60 border border-[#FEFFFC]/[0.12] focus:border-[#D0FF00]/70 focus:ring-1 focus:ring-[#D0FF00]/40 text-[#FEFFFC] placeholder-[#FEFFFC]/20 text-[14px] font-mono tracking-[0.16em] uppercase outline-none transition-all shadow-inner"
                   />
                 </div>
@@ -450,7 +465,7 @@ export default function SleekAuthPage() {
                 {errorMessage && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
+                    animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
                     className="text-[11px] text-[#FF6B6B] bg-[#FF4D4D]/10 border border-[#FF4D4D]/20 rounded-xl px-3 py-2 font-mono flex items-center gap-2 overflow-hidden"
                   >

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# Cachette Node Setup Script
+# Cachette Node Setup Script (Linux / macOS)
 # ==============================================================================
 
 set -e
@@ -21,34 +21,27 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
 # ------------------------------------------------------------------------------
-# 1. Detect Docker & Docker Compose
+# 1. Check Prerequisites (Python & Node.js)
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[1/4] Checking prerequisites...${NC}"
 
-if command -v docker &> /dev/null; then
-    echo -e "  ${GREEN}✔${NC} Docker is installed: $(docker --version)"
+# Check Python
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
 else
-    echo -e "  ${RED}✘ Docker is not found! Please install Docker Desktop and start it.${NC}"
+    echo -e "  ${RED}✘ Python is not installed! Please install Python 3.10+.${NC}"
     exit 1
 fi
+echo -e "  ${GREEN}✔${NC} Python: $($PYTHON_CMD --version)"
 
-# Detect docker compose v2 vs v1
-if docker compose version &> /dev/null; then
-    COMPOSE_CMD="docker compose"
-elif command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD="docker-compose"
-else
-    echo -e "  ${RED}✘ Docker Compose is not found!${NC}"
+# Check Node.js
+if ! command -v node &> /dev/null; then
+    echo -e "  ${RED}✘ Node.js is not installed! Please install Node.js 18+.${NC}"
     exit 1
 fi
-echo -e "  ${GREEN}✔${NC} Using Compose command: ${CYAN}${COMPOSE_CMD}${NC}"
-
-# Check Docker daemon availability
-if ! docker info &> /dev/null; then
-    echo -e "  ${RED}✘ Docker daemon is not running. Please start Docker Desktop first.${NC}"
-    exit 1
-fi
-echo -e "  ${GREEN}✔${NC} Docker daemon is active."
+echo -e "  ${GREEN}✔${NC} Node.js: $(node --version)"
 
 # ------------------------------------------------------------------------------
 # 2. Configure Environment Files
@@ -60,8 +53,7 @@ if [ ! -f ".env" ]; then
     echo -e "  Creating root ${CYAN}.env${NC}..."
     cat << 'EOF' > .env
 DATABASE_URL=sqlite+aiosqlite:///./cachette.db
-REDIS_URL=redis://localhost:6379
-S3_ENDPOINT_URL=http://localhost:9002
+S3_ENDPOINT_URL=http://127.0.0.1:9002
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
@@ -78,14 +70,13 @@ if [ ! -f "backend/.env" ]; then
     echo -e "  Creating ${CYAN}backend/.env${NC}..."
     cat << 'EOF' > backend/.env
 DATABASE_URL=sqlite+aiosqlite:///./cachette.db
-REDIS_URL=redis://localhost:6379
-S3_ENDPOINT_URL=http://localhost:9002
+S3_ENDPOINT_URL=http://127.0.0.1:9002
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=cachette-files
 CF_TUNNEL_TOKEN=
-CENTRAL_URL=https://cachette-central.onrender.com
+CENTRAL_URL=https://cachette.cloud
 EOF
     echo -e "  ${GREEN}✔${NC} Created backend/.env"
 else
@@ -97,7 +88,7 @@ if [ ! -f "frontend/.env" ]; then
     echo -e "  Creating ${CYAN}frontend/.env${NC}..."
     cat << 'EOF' > frontend/.env
 BACKEND_URL=http://127.0.0.1:8000
-NEXT_PUBLIC_CENTRAL_URL=https://cachette-central.onrender.com
+NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
 EOF
     echo -e "  ${GREEN}✔${NC} Created frontend/.env"
 else
@@ -105,140 +96,47 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Determine Setup Mode
+# 3. Setup Backend Environment
 # ------------------------------------------------------------------------------
-# Check if CF_TUNNEL_TOKEN is already set in .env
-CF_TOKEN=""
-if [ -f ".env" ]; then
-    CF_TOKEN=$(grep -E "^CF_TUNNEL_TOKEN=" .env | cut -d '=' -f2- | tr -d '[:space:]' || true)
+echo -e "\n${YELLOW}[3/4] Setting up Backend virtual environment...${NC}"
+
+cd "$PROJECT_ROOT/backend"
+if [ ! -d ".venv" ]; then
+    $PYTHON_CMD -m venv .venv
+    echo -e "  ${GREEN}✔${NC} Created backend/.venv"
 fi
 
-SETUP_MODE=""
+VENV_PYTHON="$PROJECT_ROOT/backend/.venv/bin/python"
 
-if [ "$1" == "--docker" ]; then
-    SETUP_MODE="1"
-elif [ "$1" == "--dev" ]; then
-    SETUP_MODE="2"
-fi
+$VENV_PYTHON -m pip install --upgrade pip
+$VENV_PYTHON -m pip install -r requirements.txt
+$VENV_PYTHON -m alembic upgrade head
 
-if [ -z "$SETUP_MODE" ]; then
-    echo -e "\n${YELLOW}[3/4] Select setup mode:${NC}"
-    echo "  1) Full Docker Mode (Runs Frontend, Backend, Redis, MinIO via Docker Compose)"
-    echo "  2) Local Development Mode (Runs Redis & MinIO in Docker; Python & Next.js locally)"
-    read -p "Enter choice [1 or 2] (default: 1): " USER_CHOICE
-    SETUP_MODE="${USER_CHOICE:-1}"
-fi
+cd "$PROJECT_ROOT"
 
 # ------------------------------------------------------------------------------
-# 4. Execute Setup
+# 4. Setup Frontend Dependencies
 # ------------------------------------------------------------------------------
-if [ "$SETUP_MODE" == "1" ]; then
-    echo -e "\n${YELLOW}[4/4] Starting all services with Docker Compose...${NC}"
-    if [ -n "$CF_TOKEN" ]; then
-        echo -e "  ${GREEN}✔${NC} Found CF_TUNNEL_TOKEN: starting stack with Cloudflare tunnel profile..."
-        $COMPOSE_CMD --profile tunnel up -d --build
-    else
-        $COMPOSE_CMD up -d --build
-    fi
-
-    echo -e "\n${GREEN}====================================================${NC}"
-    echo -e "${GREEN}   ✔ Cachette Docker Stack is up and running!       ${NC}"
-    echo -e "${GREEN}====================================================${NC}"
-    echo -e "  • ${CYAN}Frontend UI:${NC}    http://localhost:3000"
-    echo -e "  • ${CYAN}Backend API:${NC}    http://localhost:8000/docs"
-    echo -e "  • ${CYAN}MinIO Console:${NC}  http://localhost:9003  (User: minioadmin / Pass: minioadmin)"
-
-    if [ -n "$CF_TOKEN" ]; then
-        echo -e "\n  ${GREEN}✔ Tunnel Status:${NC} Cloudflare tunnel is running and connected."
-        echo -e "  Your node is accessible via your assigned subdomain on ${CYAN}cachette.cloud${NC}."
-    else
-        echo -e "\n${YELLOW}Open http://localhost:3000 to pair your node. The tunnel starts after pairing.${NC}"
-        echo -e "Once paired, your node will be live at its public subdomain."
-        echo -e "If the tunnel does not start automatically after pairing, run:"
-        echo -e "  ${CYAN}$COMPOSE_CMD --profile tunnel up -d cloudflared${NC}"
-    fi
-
-elif [ "$SETUP_MODE" == "2" ]; then
-    echo -e "\n${YELLOW}[4/4] Setting up Local Development environment...${NC}"
-
-    # Start MinIO & Redis (+ cloudflared if token is present)
-    if [ -n "$CF_TOKEN" ]; then
-        echo -e "\nStarting supporting containers (Redis, MinIO & Cloudflared tunnel)..."
-        $COMPOSE_CMD --profile tunnel up -d redis minio cloudflared
-    else
-        echo -e "\nStarting supporting storage containers (Redis & MinIO)..."
-        $COMPOSE_CMD up -d redis minio
-    fi
-
-    # Check for Python
-    PYTHON_CMD=""
-    if command -v python3 &> /dev/null; then
-        PYTHON_CMD="python3"
-    elif command -v python &> /dev/null; then
-        PYTHON_CMD="python"
-    else
-        echo -e "${RED}✘ Python is not installed. Please install Python 3.12+ for local backend.${NC}"
-        exit 1
-    fi
-    echo -e "  ${GREEN}✔${NC} Found Python: $($PYTHON_CMD --version)"
-
-    # Setup Backend Virtual Environment
-    echo -e "\nSetting up Backend virtual environment..."
-    cd backend
-    if [ ! -d ".venv" ]; then
-        $PYTHON_CMD -m venv .venv
-        echo -e "  ${GREEN}✔${NC} Created backend/.venv"
-    fi
-
-    # Activate Virtualenv
-    if [ -f ".venv/bin/activate" ]; then
-        source .venv/bin/activate
-    elif [ -f ".venv/Scripts/activate" ]; then
-        source .venv/Scripts/activate
-    fi
-
-    echo -e "Installing backend Python dependencies..."
-    pip install --upgrade pip
-    pip install -r requirements.txt
-
-    echo -e "Applying database migrations..."
-    alembic upgrade head
-    cd "$PROJECT_ROOT"
-
-    # Setup Frontend
-    if command -v npm &> /dev/null; then
-        echo -e "\nInstalling frontend npm dependencies..."
-        cd frontend
-        npm install
-        cd "$PROJECT_ROOT"
-    else
-        echo -e "${RED}✘ npm is not installed. Please install Node.js 20+ for local frontend.${NC}"
-        exit 1
-    fi
-
-    echo -e "\n${GREEN}====================================================${NC}"
-    echo -e "${GREEN}   ✔ Local Development Setup Complete!              ${NC}"
-    echo -e "${GREEN}====================================================${NC}"
-    echo -e "To start your services, open two separate terminals:\n"
-    echo -e "  ${CYAN}Terminal 1 (Backend):${NC}"
-    echo -e "    cd backend"
-    echo -e "    source .venv/bin/activate   # or .venv\\Scripts\\activate on Windows"
-    echo -e "    uvicorn app.main:app --reload --port 8000\n"
-    echo -e "  ${CYAN}Terminal 2 (Frontend):${NC}"
-    echo -e "    cd frontend"
-    echo -e "    npm run dev\n"
-    echo -e "  • ${CYAN}MinIO Console:${NC} http://localhost:9003 (Login: minioadmin / minioadmin)"
-    echo -e "  • ${CYAN}Frontend UI:${NC}   http://localhost:3000"
-
-    if [ -n "$CF_TOKEN" ]; then
-        echo -e "  • ${GREEN}Tunnel Status:${NC} Cloudflare tunnel container is running."
-    else
-        echo -e "  • ${YELLOW}Workflow:${NC} Open http://localhost:3000 to enter your pairing code from https://cachette-central.onrender.com."
-        echo -e "    Upon pairing, the backend writes your tunnel token and connects to your live subdomain."
-        echo -e "    Manual tunnel start command if needed:"
-        echo -e "      ${CYAN}$COMPOSE_CMD --profile tunnel up -d cloudflared${NC}\n"
-    fi
+echo -e "\n${YELLOW}[4/4] Installing frontend dependencies...${NC}"
+cd "$PROJECT_ROOT/frontend"
+if command -v pnpm &> /dev/null; then
+    pnpm install
 else
-    echo -e "${RED}Invalid selection. Exiting.${NC}"
-    exit 1
+    npm install
 fi
+cd "$PROJECT_ROOT"
+
+echo -e "\n${GREEN}====================================================${NC}"
+echo -e "${GREEN}       Cachette Node Setup Complete!                ${NC}"
+echo -e "${GREEN}====================================================${NC}"
+echo -e "${CYAN}No Docker required! MinIO and Cloudflared run natively.${NC}"
+echo -e "To start your node, run in separate terminals:\n"
+echo -e "  ${CYAN}Terminal 1 (Backend):${NC}"
+echo -e "    cd backend"
+echo -e "    source .venv/bin/activate"
+echo -e "    uvicorn app.main:app --port 8000\n"
+echo -e "  ${CYAN}Terminal 2 (Frontend):${NC}"
+echo -e "    cd frontend"
+echo -e "    npm run dev\n"
+echo -e "${YELLOW}Once started, open http://localhost:3000 to pair your node with Central.${NC}"
+echo -e "${GREEN}====================================================${NC}"

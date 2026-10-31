@@ -76,7 +76,6 @@ python-jose==3.3.0
 python-multipart==0.0.20
 pyyaml==6.0.3
 pyzmq==27.1.0
-redis==5.2.1
 requests==2.34.2
 resend==2.36.0
 rsa==4.9.1

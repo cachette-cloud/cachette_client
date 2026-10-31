@@ -439,7 +439,7 @@ def build_share_url(slug: str, request_base_url: Optional[str] = None) -> str:
     """Build full public share URL using this node's known subdomain or request base URL."""
     subdomain = get_current_subdomain()
     if subdomain:
-        return f"https://{subdomain}.cachette-central.onrender.com/s/{slug}"
+        return f"https://{subdomain}.cachette.cloud/s/{slug}"
     if request_base_url:
         return f"{request_base_url.rstrip('/')}/s/{slug}"
     return f"http://localhost:8000/s/{slug}"
