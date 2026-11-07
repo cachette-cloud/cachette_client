@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core.rate_limiter import default_rate_limiter
 from app.core.jwks import jwks_manager
-from app.db import engine
+from app.db import engine, run_alembic_migrations
 from app.dependencies import (
     rate_limit,
     rate_limit_user,
@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
     log.info("Startup complete: DB connection verified.")
+
+    log.info("Startup: applying database migrations...")
+    await run_alembic_migrations(engine)
+    log.info("Startup complete: DB migrations applied.")
 
     # Start periodic in-memory rate limiter sweeper
     sweeper_task = asyncio.create_task(default_rate_limiter.run_sweeper())

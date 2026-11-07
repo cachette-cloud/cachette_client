@@ -96,34 +96,44 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Setup Backend Environment
+# 3. Setup Backend Environment (via uv)
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[3/4] Setting up Backend virtual environment...${NC}"
 
 cd "$PROJECT_ROOT/backend"
-if [ ! -d ".venv" ]; then
-    $PYTHON_CMD -m venv .venv
-    echo -e "  ${GREEN}✔${NC} Created backend/.venv"
+if command -v uv &> /dev/null; then
+    echo -e "${CYAN}  Using uv for ultra-fast dependency installation...${NC}"
+    if [ ! -d ".venv" ]; then
+        uv venv .venv
+        echo -e "  ${GREEN}✔${NC} Created backend/.venv via uv"
+    fi
+    uv pip install -r requirements.txt --python .venv/bin/python
+else
+    if [ ! -d ".venv" ]; then
+        $PYTHON_CMD -m venv .venv
+        echo -e "  ${GREEN}✔${NC} Created backend/.venv"
+    fi
+    VENV_PYTHON="$PROJECT_ROOT/backend/.venv/bin/python"
+    $VENV_PYTHON -m pip install -r requirements.txt
 fi
 
 VENV_PYTHON="$PROJECT_ROOT/backend/.venv/bin/python"
-
-$VENV_PYTHON -m pip install --upgrade pip
-$VENV_PYTHON -m pip install -r requirements.txt
 $VENV_PYTHON -m alembic upgrade head
 
 cd "$PROJECT_ROOT"
 
 # ------------------------------------------------------------------------------
-# 4. Setup Frontend Dependencies
+# 4. Setup Frontend Dependencies & Build
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[4/4] Installing frontend dependencies...${NC}"
+echo -e "\n${YELLOW}[4/4] Installing frontend dependencies and building production assets...${NC}"
 cd "$PROJECT_ROOT/frontend"
 if command -v pnpm &> /dev/null; then
     pnpm install
 else
     npm install
 fi
+echo -e "${CYAN}Building frontend...${NC}"
+npm run build
 cd "$PROJECT_ROOT"
 
 echo -e "\n${GREEN}====================================================${NC}"
@@ -137,6 +147,6 @@ echo -e "    source .venv/bin/activate"
 echo -e "    uvicorn app.main:app --port 8000\n"
 echo -e "  ${CYAN}Terminal 2 (Frontend):${NC}"
 echo -e "    cd frontend"
-echo -e "    npm run dev\n"
+echo -e "    npm run start\n"
 echo -e "${YELLOW}Once started, open http://localhost:3000 to pair your node with Central.${NC}"
 echo -e "${GREEN}====================================================${NC}"
