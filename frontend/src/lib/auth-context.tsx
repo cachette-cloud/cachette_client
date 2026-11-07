@@ -107,13 +107,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTunnelError(null);
       await apiRestartTunnel();
       await refreshSession();
-    } catch (err: any) {
-      setTunnelError(err.message || 'Failed to trigger tunnel restart');
+    } catch (err: unknown) {
+      setTunnelError(err instanceof Error ? err.message : 'Failed to trigger tunnel restart');
       setTunnelStatus('failed');
     }
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshSession();
 
     // Subscribe to 401 session expired triggers from api.ts
