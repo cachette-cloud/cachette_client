@@ -108,9 +108,10 @@ export default function UploadButton({ currentFolderId, onUploadComplete }: Uplo
           setUploadProgress(`${prefix}Saving...`);
           await apiCompleteUpload(initRes.file_id, parts);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Upload failed:', err);
-        alert(`Failed to upload ${file.name}: ${err.detail || err.message}`);
+        const detail = err && typeof err === 'object' && 'detail' in err ? String((err as { detail: unknown }).detail) : err instanceof Error ? err.message : 'Unknown error';
+        alert(`Failed to upload ${file.name}: ${detail}`);
       }
     }
 

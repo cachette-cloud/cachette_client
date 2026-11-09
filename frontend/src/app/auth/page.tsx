@@ -1,29 +1,17 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import {
-  motion,
-  AnimatePresence,
-  useMotionValue,
-  useTransform,
-  useSpring,
-} from "motion/react";
 import { useAuth } from "@/lib/auth-context";
 import { apiClaimPairing, setSessionToken } from "@/lib/api";
 import DarkVeil from "@/components/ui/DarkVeil";
 import {
-  RiKey2Line,
-  RiArrowRightLine,
-  RiExternalLinkLine,
-  RiRestartLine,
-  RiCheckLine,
   RiLoader4Line,
-  RiShieldCheckLine,
-  RiClipboardLine,
-  RiArrowLeftLine,
   RiErrorWarningLine,
+  RiClipboardLine,
+  RiCheckLine,
+  RiRestartLine,
+  RiArrowRightLine,
 } from "react-icons/ri";
 
 const CENTRAL_URL =
@@ -39,14 +27,13 @@ export default function SleekAuthPage() {
     isAuthenticated,
     isSessionExpired,
     tunnelStatus,
-    tunnelReady,
     tunnelError,
     restartTunnel,
-    nodeInfo,
     refreshSession,
   } = useAuth();
 
   const [connectionCode, setConnectionCode] = useState("");
+  const [slotStatus, setSlotStatus] = useState<"idle" | "error" | "success">("idle");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -66,32 +53,7 @@ export default function SleekAuthPage() {
   const mouseX = useMotionValue(0.5);
   const mouseY = useMotionValue(0.5);
 
-  const springConfig = { damping: 20, stiffness: 180, mass: 0.6 };
-  const smoothMouseX = useSpring(mouseX, springConfig);
-  const smoothMouseY = useSpring(mouseY, springConfig);
-
-  const rotateX = useTransform(smoothMouseY, [0, 1], [6, -6]);
-  const rotateY = useTransform(smoothMouseX, [0, 1], [-6, 6]);
-
-  const glareX = useTransform(smoothMouseX, [0, 1], [0, 420]);
-  const glareY = useTransform(smoothMouseY, [0, 1], [0, 520]);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    mouseX.set(x);
-    mouseY.set(y);
-  };
-
-  const handleMouseLeave = () => {
-    mouseX.set(0.5);
-    mouseY.set(0.5);
-    setIsHovered(false);
-  };
-
-  // Redirect to dashboard immediately if authenticated and ready
+  // Redirect to dashboard immediately if authenticated
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       router.push("/dashboard");
@@ -104,7 +66,11 @@ export default function SleekAuthPage() {
     const intervalMs = isLocal ? 3000 : 8000;
     const interval = setInterval(() => {
       refreshSession();
+<<<<<<< HEAD
     }, intervalMs);
+=======
+    }, 3000);
+>>>>>>> 34b50d9a948b7075e87042af4e9baa3ce58a2059
     return () => clearInterval(interval);
   }, [isAuthenticated, isLocal, refreshSession]);
 
@@ -134,12 +100,16 @@ export default function SleekAuthPage() {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
-        setConnectionCode(text.trim().toUpperCase());
+        const clean = text.trim().toUpperCase().slice(0, 6);
+        setConnectionCode(clean);
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 1500);
+        if (clean.length === 6) {
+          submitCode(clean);
+        }
       }
     } catch {
-      // Clipboard permission denied or unsupported
+      // Clipboard denied or unsupported
     }
   };
 
@@ -152,153 +122,68 @@ export default function SleekAuthPage() {
     }
   };
 
-  // Status mapping
-  const getStatusBadge = () => {
-    if (isSessionExpired) {
-      return {
-        label: "SESSION EXPIRED",
-        color: "#FFB800",
-        pulse: true,
-        desc: "Re-authorization required",
-      };
-    }
-    if (tunnelStatus === "failed") {
-      return {
-        label: "TUNNEL OFFLINE",
-        color: "#FF4D4D",
-        pulse: true,
-        desc: "Bridge disconnected",
-      };
-    }
-    if (isPaired && (tunnelStatus === "starting" || !tunnelReady)) {
-      return {
-        label: "SYNCHRONIZING",
-        color: "#8116E0",
-        pulse: true,
-        desc: "Establishing secure tunnel",
-      };
-    }
-    if (isPaired && (tunnelReady || tunnelStatus === "ready")) {
-      return {
-        label: "NODE ONLINE",
-        color: "#D0FF00",
-        pulse: false,
-        desc: "Cluster encrypted",
-      };
-    }
-    return {
-      label: "NODE STANDBY",
-      color: "#D0FF00",
-      pulse: true,
-      desc: "Ready for connection",
-    };
-  };
-
-  const status = getStatusBadge();
-
   return (
-    <main className="relative min-h-[100dvh] w-full bg-[#000000] text-[#FEFFFC] flex flex-col items-center justify-center px-4 sm:px-6 py-8 overflow-hidden select-none font-sans">
-      {/* ── Background WebGL Shader (DarkVeil) ── */}
-      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <DarkVeil
-          speed={0.4}
-          hueShift={0}
-          noiseIntensity={0.02}
-          scanlineIntensity={0.06}
-          scanlineFrequency={2.0}
-          warpAmount={0.25}
-          resolutionScale={1}
-          className="opacity-75"
+    <main className="relative min-h-[100dvh] w-full bg-[#050507] text-[#f4f4f5] flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden select-none font-sans">
+      {/* ── Background WebGL Waves (React Bits <LineWaves />) ── */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-45">
+        <LineWaves
+          color1="#71717a"
+          color2="#3f3f46"
+          color3="#18181b"
+          speed={0.2}
+          lineCount={68}
+          lineWidth={1.2}
+          highlight={0.8}
+          warpIntensity={0.85}
+          rotation={-32}
+          enableMouseInteraction={false}
+          clickRipple={false}
+          intro={false}
         />
-
-        {/* Ambient atmospheric vignettes blending #131210 and #000000 */}
-        <div className="absolute inset-0 bg-[#000000]/40 backdrop-blur-[1px]" />
-        <div className="absolute inset-0 bg-radial from-transparent via-[#131210]/60 to-[#000000]" />
-
-        {/* Studio lighting auras matching #8116E0 & #D0FF00 */}
-        <div className="absolute top-[18%] left-[24%] w-[380px] sm:w-[540px] h-[380px] sm:h-[540px] rounded-full bg-[#8116E0]/[0.14] blur-[140px] pointer-events-none transform -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-[20%] right-[22%] w-[320px] sm:w-[460px] h-[320px] sm:h-[460px] rounded-full bg-[#D0FF00]/[0.08] blur-[150px] pointer-events-none transform translate-x-1/2 translate-y-1/2" />
+        {/* Subtle vignette darkening towards edges */}
+        <div className="absolute inset-0 bg-radial from-transparent via-[#050507]/60 to-[#050507]" />
       </div>
 
-      {/* Top Navigation / Home Link */}
+      {/* ── Center Sleek Modal / Panel (Inspired by image) ── */}
       <motion.div
-        className="fixed top-6 left-6 z-20"
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
+        initial={{ opacity: 0, y: 16, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="relative z-10 w-full max-w-[400px] sm:max-w-[420px] rounded-[32px] p-7 sm:p-9 bg-[#0b0b0e]/95 backdrop-blur-2xl border border-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.85)] flex flex-col items-center"
       >
-        <Link
-          href="/"
-          className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#131210]/60 hover:bg-[#131210]/90 border border-[#FEFFFC]/[0.08] hover:border-[#FEFFFC]/[0.18] backdrop-blur-xl text-[12px] font-mono text-[#FEFFFC]/60 hover:text-[#FEFFFC] transition-all duration-200"
-        >
-          <RiArrowLeftLine className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-          <span>PORTAL</span>
-        </Link>
-      </motion.div>
-
-      {/* Center 3D Glassmorphism Auth Card */}
-      <div
-        className="relative z-10 w-full max-w-[420px] my-auto [perspective:1200px]"
-        onMouseMove={handleMouseMove}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={handleMouseLeave}
-      >
-        <motion.div
-          ref={cardRef}
-          style={{
-            rotateX,
-            rotateY,
-            transformStyle: "preserve-3d",
-          }}
-          initial={{ opacity: 0, scale: 0.94, y: 24 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-          className="relative rounded-[28px] p-7 sm:p-8 bg-[#131210]/70 backdrop-blur-[36px] border border-[#FEFFFC]/[0.12] shadow-[0_32px_100px_rgba(0,0,0,0.88),0_0_50px_-15px_rgba(129,22,224,0.32)] overflow-hidden"
-        >
-          {/* Specular Glare / Light Refraction following cursor */}
-          <motion.div
-            style={{
-              background: useTransform(
-                [glareX, glareY],
-                ([x, y]) =>
-                  `radial-gradient(circle 280px at ${x}px ${y}px, rgba(254, 255, 252, 0.08), transparent 75%)`,
-              ),
-            }}
-            className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+        {/* Top Circular Graphic Area with ShapeBlur Logo Effect */}
+        <div className="relative w-44 h-44 sm:w-48 sm:h-48 rounded-full overflow-hidden border border-white/[0.09] bg-[#020203] shadow-[inset_0_0_28px_rgba(0,0,0,0.95)] flex items-center justify-center">
+          <ShapeBlur
+            src="/logo.png"
+            size={0.65}
+            fill={true}
+            color="#ffffff"
+            blur={15}
+            lensSize={0.3}
+            lensSoftness={0.7}
+            chroma={0.12}
+            idle={true}
+            className="w-full h-full"
           />
+        </div>
 
-          {/* Top-right Curled Glass Refraction Accent (Inspired by Picture 2) */}
-          <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none overflow-hidden rounded-tr-[28px]">
-            {/* Glass corner bevel and refractive fold */}
-            <div className="absolute -top-12 -right-12 w-24 h-24 bg-gradient-to-bl from-[#FEFFFC]/[0.18] via-[#FEFFFC]/[0.04] to-transparent rotate-45 border-b border-l border-[#FEFFFC]/[0.15] backdrop-blur-md shadow-inner" />
-          </div>
+        {/* Title & Subtitle */}
+        <h1 className="text-[25px] sm:text-[27px] font-semibold text-white tracking-tight mt-6 text-center">
+          Enter the code
+        </h1>
+        <p className="text-[13px] text-zinc-400 text-center max-w-[280px] mt-2 leading-relaxed font-normal">
+          We sent you a code to your email, please enter to verify your address.
+        </p>
 
-          {/* ── Top Emblem: Overlapping Glowing Badges (Inspired by Picture 1) ── */}
-          <div className="flex flex-col items-center mb-6 pt-1">
-            <motion.div
-              className="relative flex items-center justify-center mb-4"
-              animate={{ y: [0, -3, 0] }}
-              transition={{
-                repeat: Infinity,
-                duration: 4.5,
-                ease: "easeInOut",
-              }}
-            >
-              {/* Back subtle glow halo */}
-              <div className="absolute w-20 h-20 rounded-full bg-gradient-to-r from-[#8116E0]/40 to-[#D0FF00]/30 blur-2xl pointer-events-none" />
-
-              {/* Left Badge: Electric Violet Enclave Orb */}
-              <div className="relative -mr-3.5 z-10 w-12 h-12 rounded-full bg-gradient-to-br from-[#8116E0] to-[#510B96] p-[1px] shadow-[0_8px_24px_rgba(129,22,224,0.5)]">
-                <div className="w-full h-full rounded-full bg-[#131210]/40 backdrop-blur-md flex items-center justify-center border border-white/20">
-                  <RiShieldCheckLine className="w-5 h-5 text-[#FEFFFC]" />
-                </div>
+        {/* ── Tunnel Starting View ── */}
+        {isPaired && !isSessionExpired && tunnelStatus === "starting" && (
+          <div className="w-full mt-6 space-y-3">
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center space-y-2">
+              <div className="flex justify-center">
+                <RiLoader4Line className="w-5 h-5 text-zinc-300 animate-spin" />
               </div>
-
-              {/* Right Badge: Cyber Lime Node Orb */}
-              <div className="relative z-20 w-12 h-12 rounded-full bg-gradient-to-br from-[#D0FF00] to-[#99CC00] p-[1px] shadow-[0_8px_24px_rgba(208,255,0,0.35)]">
-                <div className="w-full h-full rounded-full bg-[#131210]/30 backdrop-blur-md flex items-center justify-center border border-black/20">
-                  <RiKey2Line className="w-5 h-5 text-[#000000]" />
-                </div>
+              <div className="text-[13px] font-medium text-white">
+                Launching Tunnel Bridge...
               </div>
             </motion.div>
 
@@ -341,7 +226,6 @@ export default function SleekAuthPage() {
                   : status.desc}
               </span>
             </div>
-          </div>
 
           {/* ── Conditional Views ── */}
           {/* 1. Localhost Paired View */}
@@ -466,7 +350,6 @@ export default function SleekAuthPage() {
                 Initial node pairing can only be claimed locally on the host machine at <span className="font-mono text-[#D0FF00]">http://localhost:3000</span>.
               </p>
             </div>
-          )}
 
           {/* 4. Unpaired Localhost State: Input Code & Enter Button */}
           {!isPaired && isLocal && (
@@ -483,108 +366,61 @@ export default function SleekAuthPage() {
                   <button
                     type="button"
                     onClick={handlePasteCode}
-                    className="text-[10.5px] font-mono text-[#D0FF00] hover:underline flex items-center gap-1 opacity-80 hover:opacity-100 transition-opacity"
+                    className="text-[11.5px] font-mono text-zinc-400 hover:text-zinc-200 flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 transition-colors"
                   >
                     {isCopied ? (
                       <>
-                        <RiCheckLine className="w-3 h-3 text-[#D0FF00]" />
-                        <span>Pasted</span>
+                        <RiCheckLine className="w-3 h-3 text-emerald-400" />
+                        <span className="text-emerald-400">Pasted</span>
                       </>
                     ) : (
                       <>
                         <RiClipboardLine className="w-3 h-3" />
-                        <span>Paste</span>
+                        <span>Paste code</span>
                       </>
                     )}
                   </button>
-                </div>
 
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <RiKey2Line className="w-4 h-4 text-[#FEFFFC]/35 group-focus-within:text-[#D0FF00] transition-colors" />
-                  </div>
-
-                  <input
-                    id="nodeCode"
-                    type="text"
-                    required
-                    maxLength={16}
-                    autoComplete="off"
-                    spellCheck="false"
-                    placeholder="ENTER NODE KEY"
-                    value={connectionCode}
-                    onChange={(e) =>
-                      setConnectionCode(e.target.value.toUpperCase())
-                    }
-                    className="w-full h-12 pl-10 pr-4 rounded-2xl bg-[#000000]/60 border border-[#FEFFFC]/[0.12] focus:border-[#D0FF00]/70 focus:ring-1 focus:ring-[#D0FF00]/40 text-[#FEFFFC] placeholder-[#FEFFFC]/20 text-[14px] font-mono tracking-[0.16em] uppercase outline-none transition-all shadow-inner"
-                  />
-                </div>
-              </div>
-
-              {/* Error feedback */}
-              <AnimatePresence>
-                {errorMessage && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="text-[11px] text-[#FF6B6B] bg-[#FF4D4D]/10 border border-[#FF4D4D]/20 rounded-xl px-3 py-2 font-mono flex items-center gap-2 overflow-hidden"
-                  >
-                    <RiErrorWarningLine className="w-4 h-4 shrink-0 text-[#FF4D4D]" />
-                    <span className="truncate">{errorMessage}</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Enter CTA Button */}
-              <motion.button
-                whileHover={{ scale: 1.015 }}
-                whileTap={{ scale: 0.985 }}
-                disabled={submitting || !connectionCode.trim()}
-                type="submit"
-                className="relative group w-full h-12 rounded-2xl bg-gradient-to-r from-[#8116E0] via-[#680ec2] to-[#8116E0] text-[#FEFFFC] font-medium text-[13.5px] flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(129,22,224,0.45)] hover:shadow-[0_12px_36px_rgba(129,22,224,0.6)] disabled:opacity-45 disabled:pointer-events-none transition-all duration-300 overflow-hidden"
-              >
-                {/* Button specular light shimmer */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#FEFFFC]/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
-
-                {submitting ? (
-                  <>
-                    <RiLoader4Line className="w-4 h-4 animate-spin text-[#D0FF00]" />
-                    <span>Connecting Node...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Enter Node</span>
-                    <RiArrowRightLine className="w-4 h-4 text-[#D0FF00] group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
-              </motion.button>
-
-              {/* Minimal Helper / Context Link */}
-              <div className="pt-2 text-center">
-                <a
-                  href={CENTRAL_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-[11px] font-mono text-[#FEFFFC]/40 hover:text-[#D0FF00] transition-colors"
-                >
-                  <span>Need a pairing code? Open Central</span>
-                  <RiExternalLinkLine className="w-3 h-3" />
-                </a>
-              </div>
-            </form>
-          )}
-
-          {/* Minimal footer metadata */}
-          <div className="mt-6 pt-4 border-t border-[#FEFFFC]/[0.06] flex items-center justify-between text-[10px] font-mono text-[#FEFFFC]/30">
-            <span>CACHETTE PROTOCOL</span>
-            <span className="text-[#D0FF00]/70 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#D0FF00]" />
-              ENCLAVE SECURE
-            </span>
+                  {connectionCode.length === 6 && (
+                    <button
+                      type="button"
+                      onClick={() => submitCode(connectionCode)}
+                      className="text-[11.5px] font-mono text-white hover:text-zinc-200 flex items-center gap-1 px-3 py-1 rounded-full bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                    >
+                      <span>Submit</span>
+                      <RiArrowRightLine className="w-3 h-3" />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </motion.div>
-      </div>
+        )}
+
+        {/* Footer: "Need Help? Contact us" matching the image */}
+        <div className="mt-8 pt-2 text-center">
+          <p className="text-[12.5px] text-zinc-500">
+            Need Help?{" "}
+            <a
+              href={CENTRAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zinc-300 hover:text-white underline underline-offset-4 transition-colors font-medium"
+            >
+              Contact us
+            </a>
+          </p>
+        </div>
+
+        {/* Bottom subtle metadata */}
+        <div className="mt-6 pt-4 border-t border-white/[0.05] w-full flex items-center justify-between text-[10px] font-mono text-zinc-600">
+          <span>CACHETTE PROTOCOL</span>
+          <span className="flex items-center gap-1.5 text-zinc-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+            ENCLAVE SECURE
+          </span>
+        </div>
+      </motion.div>
     </main>
   );
 }
