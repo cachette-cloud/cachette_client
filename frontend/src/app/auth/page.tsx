@@ -28,8 +28,6 @@ export default function SleekAuthPage() {
   const router = useRouter();
   const {
     isPaired,
-    needsLogin,
-    authError,
     isLoading: authLoading,
     isAuthenticated,
     isSessionExpired,
@@ -70,18 +68,16 @@ export default function SleekAuthPage() {
   // Periodic session refresh
   useEffect(() => {
     if (isAuthenticated) return;
-    const intervalMs = isLocal ? 3000 : 8000;
     const interval = setInterval(() => {
       refreshSession();
     }, 4000);
-    }, intervalMs);
     return () => clearInterval(interval);
-  }, [isAuthenticated, isLocal, refreshSession]);
+  }, [isAuthenticated, refreshSession]);
 
-  const handleAuthorize = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanCode = connectionCode.trim().toUpperCase();
-    if (!cleanCode) return;
+  const submitCode = useCallback(
+    async (rawCode: string) => {
+      const cleanCode = rawCode.trim().toUpperCase();
+      if (!cleanCode || cleanCode.length < 6) return;
 
       setSubmitting(true);
       setErrorMessage(null);
@@ -111,18 +107,10 @@ export default function SleekAuthPage() {
     [refreshSession]
   );
 
-    try {
-      await apiClaimPairing(cleanCode);
-      await refreshSession();
-    } catch (err: any) {
-      setErrorMessage(
-        err?.detail ||
-          err?.message ||
-          "Invalid or expired node connection code.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
+  const handleCodeChange = (code: string) => {
+    setConnectionCode(code);
+    if (slotStatus !== "idle") setSlotStatus("idle");
+    if (errorMessage) setErrorMessage(null);
   };
 
   const handlePasteCode = async () => {
@@ -439,7 +427,6 @@ export default function SleekAuthPage() {
                 autoFocus={true}
               />
             </div>
-          )}
 
             {/* Action Bar */}
             <div className="mt-5 flex items-center gap-3">
