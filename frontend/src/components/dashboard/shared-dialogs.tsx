@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDashboard } from '@/lib/dashboard-context';
+import { useAuth } from '@/lib/auth-context';
 import {
   Dialog,
   DialogContent,
@@ -18,9 +19,12 @@ import {
   RiShareForwardLine,
   RiExternalLinkLine,
   RiLoader4Line,
+  RiShieldUserLine,
+  RiErrorWarningLine,
 } from 'react-icons/ri';
 
 export default function SharedDialogs() {
+  const { isOwner } = useAuth();
   const {
     newFolderOpen,
     setNewFolderOpen,
@@ -58,6 +62,13 @@ export default function SharedDialogs() {
   const [sharing, setSharing] = useState(false);
   const [generatedShare, setGeneratedShare] = useState<ShareResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  // Reset share state when file changes
+  useEffect(() => {
+    setGeneratedShare(null);
+    setShareError(null);
+  }, [fileToShare]);
 
   // Sync state when opening dialogs
   const activeShare = generatedShare || existingShare;
@@ -98,10 +109,18 @@ export default function SharedDialogs() {
 
   const handleGenerateShare = async () => {
     if (!fileToShare) return;
+    if (!isOwner) {
+      setShareError('Forbidden: Only the hardware node owner can generate public share links.');
+      return;
+    }
     setSharing(true);
+    setShareError(null);
     try {
       const share = await createShareLink(fileToShare.id, accessLevel);
       setGeneratedShare(share);
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : 'Failed to create share link';
+      setShareError(msg);
     } finally {
       setSharing(false);
     }
@@ -284,6 +303,25 @@ export default function SharedDialogs() {
           </DialogHeader>
 
           <div className="py-4 space-y-4">
+            {!isOwner && (
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[12.5px] flex items-start gap-2.5">
+                <RiShieldUserLine className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-[13px]">Owner Authorization Required</p>
+                  <p className="text-zinc-400 text-[11.5px] mt-0.5 leading-relaxed">
+                    Public share link generation is restricted to the hardware node owner. As a node member, you can access, read, and manage your files directly within the node.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {shareError && (
+              <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-300 text-[12.5px] flex items-start gap-2.5">
+                <RiErrorWarningLine className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                <p className="text-[12px]">{shareError}</p>
+              </div>
+            )}
+
             {/* Access level selector */}
             <div className="p-3.5 rounded-2xl bg-black/40 border border-white/[0.06] flex items-center justify-between">
               <div>
@@ -294,9 +332,10 @@ export default function SharedDialogs() {
               </div>
 
               <select
+                disabled={!isOwner}
                 value={accessLevel}
                 onChange={(e) => setAccessLevel(e.target.value as 'view' | 'download')}
-                className="bg-white/[0.08] text-white text-[12px] font-medium rounded-xl px-3 py-1.5 outline-none border border-white/10 cursor-pointer"
+                className="bg-white/[0.08] text-white text-[12px] font-medium rounded-xl px-3 py-1.5 outline-none border border-white/10 cursor-pointer disabled:opacity-50"
               >
                 <option value="view" className="bg-[#121217] text-white">Viewer (inline)</option>
                 <option value="download" className="bg-[#121217] text-white">Downloader</option>
@@ -359,20 +398,22 @@ export default function SharedDialogs() {
               >
                 Done
               </Button>
-              <Button
-                onClick={handleGenerateShare}
-                disabled={sharing}
-                className="bg-white text-black hover:bg-zinc-200"
-              >
-                {sharing ? (
-                  <>
-                    <RiLoader4Line className="w-4 h-4 animate-spin" />
-                    <span>Creating...</span>
-                  </>
-                ) : (
-                  <span>{activeShare ? 'Update link' : 'Get link'}</span>
-                )}
-              </Button>
+              {isOwner && (
+                <Button
+                  onClick={handleGenerateShare}
+                  disabled={sharing}
+                  className="bg-white text-black hover:bg-zinc-200"
+                >
+                  {sharing ? (
+                    <>
+                      <RiLoader4Line className="w-4 h-4 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <span>{activeShare ? 'Update link' : 'Get link'}</span>
+                  )}
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>

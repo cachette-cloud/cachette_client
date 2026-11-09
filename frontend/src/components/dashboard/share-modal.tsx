@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import type { FileOut } from '@/lib/api';
 import { apiShareFile, type ShareResponse } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import {
   RiEyeLine,
   RiDownloadLine,
   RiLoader4Line,
+  RiShieldUserLine,
 } from 'react-icons/ri';
 
 interface ShareModalProps {
@@ -27,6 +29,7 @@ interface ShareModalProps {
 }
 
 export default function ShareModal({ file, open, onOpenChange }: ShareModalProps) {
+  const { isOwner } = useAuth();
   const [accessLevel, setAccessLevel] = useState<'view' | 'download'>('view');
   const [shareData, setShareData] = useState<ShareResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +43,11 @@ export default function ShareModal({ file, open, onOpenChange }: ShareModalProps
       setShareData(null);
       setCopied(false);
       setError(null);
+      return;
+    }
+
+    if (!isOwner) {
+      setError('Only the node owner has permission to create public share links.');
       return;
     }
 
@@ -64,7 +72,7 @@ export default function ShareModal({ file, open, onOpenChange }: ShareModalProps
     return () => {
       isMounted = false;
     };
-  }, [open, file, accessLevel]);
+  }, [open, file, accessLevel, isOwner]);
 
   const handleCopy = async () => {
     if (!shareData?.url) return;
@@ -142,6 +150,13 @@ export default function ShareModal({ file, open, onOpenChange }: ShareModalProps
 
           {/* Share Link Display & Copy */}
           <div>
+            {!isOwner && (
+              <div className="p-3 mb-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-[12px] flex items-start gap-2">
+                <RiShieldUserLine className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>Only the hardware node owner can create public links. As a member, your files are private to you on this node.</p>
+              </div>
+            )}
+
             <label className="text-white/50 text-[11px] font-medium uppercase tracking-wider block mb-2">
               Public Link
             </label>
@@ -154,22 +169,24 @@ export default function ShareModal({ file, open, onOpenChange }: ShareModalProps
             ) : error ? (
               <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[12px]">
                 <p>{error}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (file) {
-                      setIsLoading(true);
-                      setError(null);
-                      apiShareFile(file.id, accessLevel)
-                        .then(setShareData)
-                        .catch((e) => setError(e.message))
-                        .finally(() => setIsLoading(false));
-                    }
-                  }}
-                  className="mt-2 text-red-300 underline font-medium"
-                >
-                  Retry
-                </button>
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (file) {
+                        setIsLoading(true);
+                        setError(null);
+                        apiShareFile(file.id, accessLevel)
+                          .then(setShareData)
+                          .catch((e) => setError(e.message))
+                          .finally(() => setIsLoading(false));
+                      }
+                    }}
+                    className="mt-2 text-red-300 underline font-medium"
+                  >
+                    Retry
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-2 bg-[#0a0a0a] border border-white/[0.08] rounded-xl p-1.5 focus-within:border-indigo-500/50 transition-colors">

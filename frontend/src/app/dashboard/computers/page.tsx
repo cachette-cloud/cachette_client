@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import TunnelController from '@/components/dashboard/tunnel-controller';
 import {
   RiComputerLine,
   RiShieldCheckLine,
@@ -25,6 +26,9 @@ export default function ComputersPage() {
   const {
     nodeInfo,
     user,
+    role,
+    isOwner,
+    isLocalhost,
     tunnelStatus,
     tunnelReady,
     tunnelError,
@@ -57,23 +61,31 @@ export default function ComputersPage() {
             Hardware enclave machines synced to your Cachette account
           </p>
         </div>
-        <button
-          onClick={handleRestart}
-          disabled={restarting}
-          className="h-9 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-white text-[12.5px] font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
-        >
-          {restarting ? (
-            <>
-              <RiLoader4Line className="w-4 h-4 animate-spin text-zinc-300" />
-              <span>Restarting Bridge...</span>
-            </>
-          ) : (
-            <>
-              <RiRestartLine className="w-4 h-4 text-zinc-300" />
-              <span>Restart Tunnel</span>
-            </>
+        <div className="flex items-center gap-2">
+          {!isLocalhost && (
+            <span className="text-[11px] font-mono text-zinc-400 hidden sm:inline">
+              (Restart requires local host access)
+            </span>
           )}
-        </button>
+          <button
+            onClick={handleRestart}
+            disabled={restarting || !isLocalhost}
+            title={!isLocalhost ? 'Tunnel restart is only accessible directly on localhost' : undefined}
+            className="h-9 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-white text-[12.5px] font-medium flex items-center gap-2 transition-colors disabled:opacity-40"
+          >
+            {restarting ? (
+              <>
+                <RiLoader4Line className="w-4 h-4 animate-spin text-zinc-300" />
+                <span>Restarting Bridge...</span>
+              </>
+            ) : (
+              <>
+                <RiRestartLine className="w-4 h-4 text-zinc-300" />
+                <span>Restart Tunnel</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Main Node Card */}
@@ -83,7 +95,7 @@ export default function ComputersPage() {
             <RiComputerLine className="w-7 h-7" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-[16px] font-semibold text-white">
                 Primary Enclave Node
               </h2>
@@ -97,6 +109,15 @@ export default function ComputersPage() {
                 <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
                 {isOnline ? 'ONLINE & SECURE' : tunnelStatus.toUpperCase()}
               </span>
+              <span
+                className={`text-[10px] font-mono font-medium uppercase px-2 py-0.5 rounded-full ${
+                  isOwner
+                    ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                    : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+                }`}
+              >
+                {isOwner ? 'Node Owner' : 'Node Member'}
+              </span>
             </div>
             <p className="text-[12px] font-mono text-zinc-400 mt-1">
               ID: {nodeInfo?.node_id || 'Primary Node'} • Subdomain: {nodeInfo?.subdomain || 'Local Enclave'}
@@ -105,25 +126,26 @@ export default function ComputersPage() {
         </div>
 
         {/* Stats */}
-        <div className="flex items-center gap-6 text-[12.5px] font-mono">
+        <div className="flex items-center gap-6 text-[12.5px] font-mono flex-wrap">
           <div>
             <p className="text-zinc-500 text-[11px]">Enclave Storage</p>
             <p className="text-white font-medium mt-0.5">{formatBytes(storageUsed)} / {formatBytes(quotaBytes)}</p>
           </div>
-          <div className="h-8 w-px bg-white/[0.06]" />
+          <div className="h-8 w-px bg-white/[0.06] hidden sm:block" />
           <div>
-            <p className="text-zinc-500 text-[11px]">Bridge Protocol</p>
-            <p className="text-white font-medium mt-0.5">Cloudflare Zero-Trust</p>
+            <p className="text-zinc-500 text-[11px]">Ingress Route</p>
+            <p className="text-white font-medium mt-0.5">{isLocalhost ? 'Local Loopback' : 'Cloudflare Tunnel'}</p>
           </div>
-          <div className="h-8 w-px bg-white/[0.06]" />
+          <div className="h-8 w-px bg-white/[0.06] hidden sm:block" />
           <div>
-            <p className="text-zinc-500 text-[11px]">Token Expiry</p>
-            <p className="text-white font-medium mt-0.5">
-              {sessionTokenExpiresAt ? new Date(sessionTokenExpiresAt).toLocaleDateString() : 'Active'}
-            </p>
+            <p className="text-zinc-500 text-[11px]">User Role</p>
+            <p className="text-white font-medium mt-0.5 capitalize">{role || 'member'}</p>
           </div>
         </div>
       </div>
+
+      {/* Hardware Node & Tunnel Controller */}
+      <TunnelController />
 
       {/* Security Architecture Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

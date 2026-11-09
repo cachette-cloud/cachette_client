@@ -6,9 +6,11 @@ import {
   apiGetPairingStatus,
   apiRestartTunnel,
   setSessionToken,
+  getSessionToken,
   clearSessionToken,
   getSessionTokenExpiresAt,
   onSessionExpired,
+  ApiError,
   type UserCacheOut,
   type NodeSessionResponse,
 } from './api';
@@ -43,6 +45,9 @@ interface AuthContextValue {
   authError: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isOwner: boolean;
+  role: 'owner' | 'member' | null;
+  isLocalhost: boolean;
   tunnelStatus: 'unpaired' | 'starting' | 'ready' | 'failed';
   tunnelReady: boolean;
   tunnelError: string | null;
@@ -53,6 +58,7 @@ interface AuthContextValue {
   nodeInfo: { node_id?: string | null; subdomain?: string | null } | null;
   refreshSession: () => Promise<NodeSessionResponse | null>;
   restartTunnel: () => Promise<void>;
+  loginWithToken: (token: string) => Promise<boolean>;
   dismissSessionExpired: () => void;
   logout: () => void;
 }
@@ -67,11 +73,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tunnelReady, setTunnelReady] = useState<boolean>(false);
   const [tunnelError, setTunnelError] = useState<string | null>(null);
   const [user, setUser] = useState<UserCacheOut | null>(null);
+  const [role, setRole] = useState<'owner' | 'member' | null>(null);
   const [sessionTokenExpiresAt, setSessionTokenExpiresAt] = useState<string | null>(null);
   const [isSessionExpired, setIsSessionExpired] = useState<boolean>(false);
   const [isExpiringSoon, setIsExpiringSoon] = useState<boolean>(false);
   const [nodeInfo, setNodeInfo] = useState<{ node_id?: string | null; subdomain?: string | null } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLocalhost, setIsLocalhost] = useState<boolean>(true);
+
+  // Check if running on localhost loopback
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      setIsLocalhost(host === 'localhost' || host === '127.0.0.1' || host === '::1');
+    }
+  }, []);
+
+  // Parse token from URL if redirected from Central (e.g. ?token=... or #token=...)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const urlToken =
+        urlParams.get('token') ||
+        urlParams.get('access_token') ||
+        hashParams.get('token') ||
+        hashParams.get('access_token');
+      if (urlToken) {
+        setSessionToken(urlToken);
+        urlParams.delete('token');
+        urlParams.delete('access_token');
+        const newQuery = urlParams.toString() ? `?${urlParams.toString()}` : '';
+        window.history.replaceState({}, '', `${window.location.pathname}${newQuery}`);
+      }
+    }
+  }, []);
 
   const redirectToCentral = (reason: string) => {
     if (typeof window === 'undefined' || window.location.pathname.startsWith('/auth')) {
@@ -119,81 +155,94 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     setAuthError(null);
     try {
-      // Step 1: Check pairing status
-      const status = await apiGetPairingStatus().catch((err) => {
-        console.warn('Failed to fetch pairing status:', err);
-        return null;
-      });
+      // 1. First probe unauthenticated status endpoint to check pairing & tunnel health
+      const statusRes = await apiGetPairingStatus().catch(() => null);
 
-      if (!status) {
-        setAuthError('Unable to connect to Cachette node');
-        return null;
-      }
-
-      if (!status.paired) {
+      if (!statusRes || !statusRes.paired) {
         setIsPaired(false);
         setNeedsLogin(false);
         setTunnelStatus('unpaired');
         setTunnelReady(false);
         setTunnelError(null);
         setUser(null);
-        clearSessionToken();
+        setRole(null);
         return null;
       }
 
-      // Node is paired
       setIsPaired(true);
-      if (status.tunnel_status) {
-        setTunnelStatus(status.tunnel_status as any);
-      }
-      if (typeof status.tunnel_ready === 'boolean') {
-        setTunnelReady(status.tunnel_ready);
-      }
-      if (status.node_id || status.subdomain) {
+      setTunnelStatus((statusRes.tunnel_status as 'unpaired' | 'starting' | 'ready' | 'failed') || (statusRes.tunnel_ready ? 'ready' : 'unpaired'));
+      setTunnelReady(Boolean(statusRes.tunnel_ready));
+      setTunnelError(statusRes.tunnel_error || null);
+      if (statusRes.node_id || statusRes.subdomain) {
         setNodeInfo({
-          node_id: status.node_id,
-          subdomain: status.subdomain,
+          node_id: statusRes.node_id,
+          subdomain: statusRes.subdomain,
         });
       }
 
-      // Step 2: Fetch active session with bearer token if available
-      try {
-        const session = await apiGetNodeSession();
-        setNeedsLogin(false);
-        setTunnelStatus(session.tunnel_status || (status.tunnel_status as any) || 'unpaired');
-        setTunnelReady(Boolean(session.tunnel_ready ?? status.tunnel_ready));
-        setTunnelError(session.tunnel_error || null);
-        setUser(session.user || null);
-        const storedExpiry = getSessionTokenExpiresAt();
-        setSessionTokenExpiresAt(storedExpiry || null);
+      // 2. If a Bearer token exists, verify authenticated session
+      const token = getSessionToken();
+      if (!token) {
+        setUser(null);
+        setRole(null);
+        return {
+          paired: true,
+          tunnel_status: statusRes.tunnel_status as 'unpaired' | 'starting' | 'ready' | 'failed',
+          tunnel_ready: statusRes.tunnel_ready,
+          tunnel_error: statusRes.tunnel_error,
+          node_id: statusRes.node_id,
+          subdomain: statusRes.subdomain,
+        };
+      }
+
+      const session = await apiGetNodeSession();
+      if (session.user) {
+        setUser(session.user);
+        setRole(session.user.role || 'member');
+        setIsSessionExpired(false);
         if (session.node_id || session.subdomain) {
           setNodeInfo({
-            node_id: session.node_id,
-            subdomain: session.subdomain,
+            node_id: session.node_id || statusRes.node_id,
+            subdomain: session.subdomain || statusRes.subdomain,
           });
         }
-        checkTokenExpiry(storedExpiry);
-        return session;
-      } catch (sessionErr: any) {
-        if (sessionErr?.status === 401) {
-          // Paired, but no valid token on this browser
-          setNeedsLogin(true);
-          setUser(null);
-          clearSessionToken();
-        } else if (sessionErr?.status === 403) {
-          setAuthError('Access forbidden: You do not have access to this node.');
-        } else {
-          console.warn('Failed to fetch node session:', sessionErr);
+        if (session.tunnel_status) {
+          setTunnelStatus(session.tunnel_status);
         }
-        return null;
+        if (session.tunnel_ready !== undefined) {
+          setTunnelReady(Boolean(session.tunnel_ready));
+        }
+        if (session.tunnel_error !== undefined) {
+          setTunnelError(session.tunnel_error);
+        }
       }
-    } catch (err: any) {
-      console.warn('Error during session refresh:', err);
+
+      return session;
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        setIsSessionExpired(true);
+        setUser(null);
+        setRole(null);
+      }
       return null;
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  const loginWithToken = async (token: string): Promise<boolean> => {
+    try {
+      setSessionToken(token);
+      const session = await refreshSession();
+      if (session?.user) {
+        setIsSessionExpired(false);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
 
   const restartTunnel = async () => {
     try {
@@ -202,6 +251,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await apiRestartTunnel();
       await refreshSession();
     } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setTunnelError('Tunnel restart is already in progress. Please wait.');
+          setTunnelStatus('starting');
+          return;
+        }
+        if (err.status === 403) {
+          setTunnelError('Tunnel can only be restarted directly on localhost, not via external proxy.');
+          setTunnelStatus('failed');
+          return;
+        }
+        if (err.status === 429) {
+          const waitTime = err.retryAfter ? ` (retry after ${err.retryAfter}s)` : '';
+          setTunnelError(`Rate limit reached for tunnel restart${waitTime}.`);
+          setTunnelStatus('failed');
+          return;
+        }
+      }
       setTunnelError(err instanceof Error ? err.message : 'Failed to trigger tunnel restart');
       setTunnelStatus('failed');
     }
@@ -244,9 +311,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     clearSessionToken();
     setUser(null);
-    setNeedsLogin(true);
+    setRole(null);
     setIsSessionExpired(false);
   };
+
+  const isOwner = role === 'owner';
+  const isAuthenticated = isPaired && Boolean(user) && !isSessionExpired;
 
   return (
     <AuthContext.Provider
@@ -255,7 +325,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         needsLogin,
         authError,
         isLoading,
-        isAuthenticated: isPaired && Boolean(user) && !isSessionExpired,
+        isAuthenticated,
+        isOwner,
+        role,
+        isLocalhost,
         tunnelStatus,
         tunnelReady,
         tunnelError,
@@ -266,6 +339,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         nodeInfo,
         refreshSession,
         restartTunnel,
+        loginWithToken,
         dismissSessionExpired,
         logout,
       }}

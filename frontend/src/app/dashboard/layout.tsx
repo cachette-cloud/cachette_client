@@ -20,16 +20,16 @@ const CENTRAL_URL = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.clo
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isPaired, isLoading: authLoading, isSessionExpired, isExpiringSoon } = useAuth();
+  const { isPaired, isAuthenticated, isLoading: authLoading, isSessionExpired, isExpiringSoon } = useAuth();
   const { uploading, uploadProgress } = useDashboard();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Auth guard
+  // Auth guard: redirect to /auth if node is not paired or session is unauthenticated
   useEffect(() => {
-    if (!authLoading && !isPaired) {
-      router.push('/auth');
+    if (!authLoading && (!isPaired || !isAuthenticated)) {
+      router.replace('/auth');
     }
-  }, [authLoading, isPaired, router]);
+  }, [authLoading, isPaired, isAuthenticated, router]);
 
   if (authLoading) {
     return (
@@ -39,7 +39,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!isPaired) return null;
+  if (!isPaired || !isAuthenticated) return null;
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#070709] text-white overflow-hidden font-sans">

@@ -56,10 +56,12 @@ async def pairing_status(request: Request):
     from app.config import settings
     paired = bool(creds and creds.get("node_id") and (creds.get("public_key") or settings.PUBLIC_KEY))
 
-    # Non-local callers receive only minimal, non-sensitive status
+    # Non-local callers receive sanitized status including node_id and subdomain
     if not is_localhost(request):
         return {
             "paired": paired,
+            "node_id": creds.get("node_id") if creds else None,
+            "subdomain": creds.get("subdomain") if creds else None,
             "tunnel_ready": True if paired else tunnel.get("ready", False),
         }
 

@@ -38,6 +38,9 @@ function formatBytes(bytes: number): string {
 export default function DriveHeader({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) {
   const {
     user,
+    role,
+    isOwner,
+    isLocalhost,
     nodeInfo,
     tunnelStatus,
     tunnelReady,
@@ -163,17 +166,29 @@ export default function DriveHeader({ onOpenMobileMenu }: { onOpenMobileMenu?: (
                   <span>Domain:</span>
                   <span className="text-zinc-200 truncate max-w-[140px]">{nodeInfo?.subdomain || 'Local Enclave'}</span>
                 </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Access:</span>
+                  <span className={isLocalhost ? 'text-emerald-400' : 'text-blue-400'}>
+                    {isLocalhost ? 'Localhost' : 'Tunnel Ingress'}
+                  </span>
+                </div>
                 {tunnelError && (
                   <div className="text-red-400 text-[10px] pt-1">
-                    Error: {tunnelError}
+                    Notice: {tunnelError}
+                  </div>
+                )}
+                {!isLocalhost && (
+                  <div className="text-zinc-400 text-[10px] pt-1 italic">
+                    Administrative restart requires direct local access.
                   </div>
                 )}
               </div>
 
               <button
                 onClick={handleRestart}
-                disabled={restarting}
-                className="w-full h-8 mt-1 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white text-[11.5px] font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                disabled={restarting || !isLocalhost}
+                title={!isLocalhost ? 'Tunnel restart is restricted to direct localhost connections' : undefined}
+                className="w-full h-8 mt-1 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white text-[11.5px] font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40"
               >
                 {restarting ? (
                   <>
@@ -205,12 +220,21 @@ export default function DriveHeader({ onOpenMobileMenu }: { onOpenMobileMenu?: (
         {/* User Profile Avatar */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="relative w-9 h-9 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-500 p-[1px] shadow-sm hover:scale-105 transition-transform outline-none">
-              <div className="w-full h-full rounded-full bg-[#16161b] flex items-center justify-center">
-                <span className="text-white text-[13px] font-semibold uppercase">
-                  {(user?.display_name || 'U').charAt(0)}
-                </span>
+            <button className="relative flex items-center gap-2 p-1 rounded-full hover:bg-white/[0.05] transition-all outline-none">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-500 p-[1px] shadow-sm">
+                <div className="w-full h-full rounded-full bg-[#16161b] flex items-center justify-center">
+                  <span className="text-white text-[13px] font-semibold uppercase">
+                    {(user?.display_name || 'U').charAt(0)}
+                  </span>
+                </div>
               </div>
+              <span className={`hidden md:inline-block text-[10px] font-mono uppercase font-semibold px-2 py-0.5 rounded-full ${
+                isOwner
+                  ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                  : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+              }`}>
+                {role || 'member'}
+              </span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64 bg-[#101014] border-white/10 p-3 rounded-2xl shadow-2xl">
@@ -219,12 +243,23 @@ export default function DriveHeader({ onOpenMobileMenu }: { onOpenMobileMenu?: (
                 {(user?.display_name || 'U').charAt(0)}
               </div>
               <div className="min-w-0">
-                <p className="text-[13px] font-medium text-white truncate">
-                  {user?.display_name || 'Enclave User'}
-                </p>
-                <p className="text-[11px] text-zinc-400 truncate">
-                  {formatBytes(storageUsed)} of {formatBytes(quotaBytes)}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[13px] font-medium text-white truncate">
+                    {user?.display_name || 'Enclave User'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className={`text-[9.5px] font-mono uppercase font-medium px-1.5 py-0.2 rounded ${
+                    isOwner
+                      ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                      : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+                  }`}>
+                    {isOwner ? 'Node Owner' : 'Member'}
+                  </span>
+                  <span className="text-[11px] text-zinc-400 truncate">
+                    {formatBytes(storageUsed)} / {formatBytes(quotaBytes)}
+                  </span>
+                </div>
               </div>
             </div>
 

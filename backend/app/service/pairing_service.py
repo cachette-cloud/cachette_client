@@ -114,6 +114,7 @@ async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = Non
             detail=f"Central returned non-JSON response on success: {response.text[:200]}",
         )
     persisted = persist_pairing_credentials(data)
+    logger.info("Central claim response keys: %s", list(data.keys()))
 
     # Automatically launch cloudflared tunnel in background
     cf_token = persisted.get("cf_tunnel_token")
@@ -124,9 +125,16 @@ async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = Non
         except Exception as e:
             logger.error("Failed to schedule cloudflared tunnel startup: %s", e)
 
+    session_token = data.get("session_token") or data.get("token") or data.get("access_token")
+    session_token_expires_at = data.get("session_token_expires_at") or data.get("expires_at")
+    logger.info("Extracted session_token present: %s, expires_at: %s", bool(session_token), session_token_expires_at)
+
     return {
         "status": "paired",
         "node_id": persisted.get("node_id"),
         "subdomain": persisted.get("subdomain"),
+        "session_token": session_token,
+        "token": session_token,
+        "session_token_expires_at": str(session_token_expires_at) if session_token_expires_at else None,
         "tunnel_command": "Managed natively by Cachette supervisor",
     }
