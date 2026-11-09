@@ -60,7 +60,7 @@ async def pairing_status(request: Request):
     if not is_localhost(request):
         return {
             "paired": paired,
-            "tunnel_ready": tunnel.get("ready", False),
+            "tunnel_ready": True if paired else tunnel.get("ready", False),
         }
 
     if paired:
@@ -84,6 +84,7 @@ async def pairing_status(request: Request):
 
 @session_router.get("/session")
 async def get_node_session(
+    request: Request,
     current_user: UserCache = Depends(get_current_node_user),
 ):
     """
@@ -92,6 +93,10 @@ async def get_node_session(
     """
     creds = get_pairing_credentials()
     tunnel = get_tunnel_status()
+    is_remote = not is_localhost(request)
+    tunnel_ready = True if is_remote else tunnel.get("ready", False)
+    tunnel_status = "ready" if tunnel_ready else tunnel.get("status", "unpaired")
+
     return {
         "paired": True,
         "node_id": creds.get("node_id") if creds else None,
@@ -103,8 +108,8 @@ async def get_node_session(
             "storage_quota_bytes": current_user.storage_quota_bytes,
             "storage_used": current_user.storage_used,
         },
-        "tunnel_status": tunnel.get("status", "unpaired"),
-        "tunnel_ready": tunnel.get("ready", False),
+        "tunnel_status": tunnel_status,
+        "tunnel_ready": tunnel_ready,
         "tunnel_error": tunnel.get("error"),
     }
 

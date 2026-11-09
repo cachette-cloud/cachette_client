@@ -12,8 +12,31 @@ export function getSessionToken(): string | null {
 export function setSessionToken(token: string, expiresAt?: string | null) {
   if (typeof window === 'undefined') return;
   localStorage.setItem('session_token', token);
-  if (expiresAt) {
-    localStorage.setItem('session_token_expires_at', expiresAt);
+  let exp = expiresAt;
+  if (!exp) {
+    try {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const json = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const payload = JSON.parse(json);
+        if (payload.exp && typeof payload.exp === 'number') {
+          exp = new Date(payload.exp * 1000).toISOString();
+        }
+      }
+    } catch {
+      // ignore parsing error
+    }
+  }
+  if (exp) {
+    localStorage.setItem('session_token_expires_at', exp);
+  } else {
+    localStorage.removeItem('session_token_expires_at');
   }
 }
 

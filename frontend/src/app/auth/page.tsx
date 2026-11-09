@@ -63,11 +63,16 @@ export default function SleekAuthPage() {
   // Periodic heartbeat session sync
   useEffect(() => {
     if (isAuthenticated) return;
+    const intervalMs = isLocal ? 3000 : 8000;
     const interval = setInterval(() => {
       refreshSession();
+<<<<<<< HEAD
+    }, intervalMs);
+=======
     }, 3000);
+>>>>>>> 34b50d9a948b7075e87042af4e9baa3ce58a2059
     return () => clearInterval(interval);
-  }, [isAuthenticated, refreshSession]);
+  }, [isAuthenticated, isLocal, refreshSession]);
 
   const handleAuthorize = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -290,6 +295,15 @@ export default function SleekAuthPage() {
                   <p className="text-[11px] text-[#FEFFFC]/50 max-w-[250px] mx-auto font-mono">
                     Waiting for Cloudflare tunnel connection. The launch button will appear automatically.
                   </p>
+                  <button
+                    onClick={handleRetryTunnel}
+                    disabled={retryingTunnel}
+                    type="button"
+                    className="mt-1 text-[11px] font-mono text-[#D0FF00] hover:underline opacity-80 hover:opacity-100 inline-flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                  >
+                    <RiRestartLine className={`w-3.5 h-3.5 ${retryingTunnel ? 'animate-spin' : ''}`} />
+                    <span>{retryingTunnel ? 'Restarting...' : 'Restart tunnel service'}</span>
+                  </button>
                 </div>
               )}
             </div>
