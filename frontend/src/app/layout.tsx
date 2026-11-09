@@ -10,6 +10,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 export const metadata: Metadata = {
   title: "Cachette — Secure Cloud Storage",
   description: "Encrypted cloud storage built for speed. Upload, organize, and share your files with confidence. Up to 5 GB free.",
+  referrer: "no-referrer",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

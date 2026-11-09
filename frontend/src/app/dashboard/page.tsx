@@ -137,12 +137,12 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Auth guard: redirect to pairing screen if node is unpaired
+  // Auth guard: redirect to auth screen if node is unpaired or user is unauthenticated
   useEffect(() => {
-    if (!authLoading && !isPaired) {
+    if (!authLoading && (!isPaired || !isAuthenticated)) {
       router.push("/auth");
     }
-  }, [authLoading, isPaired, router]);
+  }, [authLoading, isPaired, isAuthenticated, router]);
 
   // Load root directory
   useEffect(() => {

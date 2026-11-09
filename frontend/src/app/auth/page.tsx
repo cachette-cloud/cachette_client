@@ -11,7 +11,7 @@ import {
   useSpring,
 } from "motion/react";
 import { useAuth } from "@/lib/auth-context";
-import { apiClaimPairing } from "@/lib/api";
+import { apiClaimPairing, setSessionToken } from "@/lib/api";
 import DarkVeil from "@/components/ui/DarkVeil";
 import {
   RiKey2Line,
@@ -33,6 +33,8 @@ export default function SleekAuthPage() {
   const router = useRouter();
   const {
     isPaired,
+    needsLogin,
+    authError,
     isLoading: authLoading,
     isAuthenticated,
     isSessionExpired,
@@ -50,6 +52,14 @@ export default function SleekAuthPage() {
   const [isCopied, setIsCopied] = useState(false);
   const [retryingTunnel, setRetryingTunnel] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [isLocal, setIsLocal] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      setIsLocal(host === "localhost" || host === "127.0.0.1" || host === "[::1]");
+    }
+  }, []);
 
   // Card 3D tilt and refraction physics
   const cardRef = useRef<HTMLDivElement>(null);
@@ -107,13 +117,7 @@ export default function SleekAuthPage() {
 
     try {
       await apiClaimPairing(cleanCode);
-      const session = await refreshSession();
-      if (
-        session?.paired &&
-        (session?.tunnel_ready || session?.tunnel_status === "ready")
-      ) {
-        router.push("/dashboard");
-      }
+      await refreshSession();
     } catch (err: any) {
       setErrorMessage(
         err?.detail ||
@@ -299,11 +303,14 @@ export default function SleekAuthPage() {
 
             {/* Title & Minimalist Context */}
             <h1 className="text-[20px] sm:text-[22px] font-semibold tracking-tight text-[#FEFFFC] text-center">
-              Node Authentication
+              {isPaired ? (isLocal ? "Node Paired" : "Node Authentication") : "Pair Node"}
             </h1>
             <p className="text-[12px] text-[#FEFFFC]/50 text-center max-w-[270px] mt-1.5 leading-relaxed font-normal">
-              Enter your pairing code to unlock and bind this secure enclave
-              node.
+              {isPaired
+                ? (isLocal
+                    ? "Your node is configured and running natively on this machine."
+                    : "Node is paired. Sign in with Central to access your node.")
+                : "Enter your pairing code to unlock and bind this secure enclave node."}
             </p>
 
             {/* Connection Status Pill */}
@@ -336,79 +343,123 @@ export default function SleekAuthPage() {
           </div>
 
           {/* ── Conditional Views ── */}
-          {/* 1. If Tunnel Starting */}
-          {isPaired && !isSessionExpired && tunnelStatus === "starting" && (
+          {/* 1. Localhost Paired View */}
+          {isPaired && isLocal && (
+            <div className="space-y-4 py-2">
+              {tunnelStatus === "failed" ? (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-[#FF4D4D]/10 border border-[#FF4D4D]/25 space-y-1.5 text-center">
+                    <div className="flex items-center justify-center gap-1.5 text-[#FF6B6B] text-[12px] font-semibold">
+                      <RiErrorWarningLine className="w-4 h-4" />
+                      <span>Tunnel Start Failure</span>
+                    </div>
+                    <p className="text-[11px] text-[#FFB3B3]/80 font-mono truncate px-2">
+                      {tunnelError || "Check network & tunnel connection"}
+                    </p>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.015 }}
+                    whileTap={{ scale: 0.985 }}
+                    onClick={handleRetryTunnel}
+                    disabled={retryingTunnel}
+                    type="button"
+                    className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#8116E0] to-[#510B96] hover:brightness-110 text-[#FEFFFC] font-medium text-[13px] flex items-center justify-center gap-2 shadow-[0_8px_24px_rgba(129,22,224,0.4)] disabled:opacity-50"
+                  >
+                    {retryingTunnel ? (
+                      <>
+                        <RiLoader4Line className="w-4 h-4 animate-spin text-[#D0FF00]" />
+                        <span>Retrying Bridge...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RiRestartLine className="w-4 h-4" />
+                        <span>Restart Tunnel Service</span>
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              ) : tunnelReady && nodeInfo?.subdomain ? (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-[#000000]/50 border border-[#22c55e]/30 text-center space-y-2">
+                    <div className="text-[14px] font-semibold text-[#FEFFFC]">
+                      Node Online
+                    </div>
+                    <p className="text-[11.5px] text-[#FEFFFC]/60 max-w-[260px] mx-auto leading-relaxed">
+                      Tunnel active on <span className="font-mono text-[#22c55e]">{nodeInfo.subdomain}.cachette.cloud</span>. All users sign in through your edge link.
+                    </p>
+                  </div>
+
+                  <motion.a
+                    whileHover={{ scale: 1.015 }}
+                    whileTap={{ scale: 0.985 }}
+                    href={`https://${nodeInfo.subdomain}.cachette.cloud`}
+                    className="relative group w-full h-12 rounded-2xl bg-gradient-to-r from-[#22c55e] via-[#16a34a] to-[#22c55e] text-[#FEFFFC] font-medium text-[13.5px] flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(34,197,94,0.35)] hover:shadow-[0_12px_36px_rgba(34,197,94,0.5)] transition-all duration-300"
+                  >
+                    <span>Open Your Node</span>
+                    <RiArrowRightLine className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
+                  </motion.a>
+                </div>
+              ) : (
+                <div className="p-5 rounded-2xl bg-[#000000]/50 border border-[#8116E0]/30 text-center space-y-3">
+                  <div className="flex justify-center">
+                    <RiLoader4Line className="w-7 h-7 text-[#D0FF00] animate-spin" />
+                  </div>
+                  <div className="text-[14px] font-semibold text-[#FEFFFC]">
+                    Starting tunnel...
+                  </div>
+                  <p className="text-[11px] text-[#FEFFFC]/50 max-w-[250px] mx-auto font-mono">
+                    Waiting for Cloudflare tunnel connection. The launch button will appear automatically.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 2. Remote Paired View: Sign In via Central */}
+          {isPaired && !isLocal && (
             <div className="space-y-4 py-2">
               <div className="p-4 rounded-2xl bg-[#000000]/50 border border-[#8116E0]/30 text-center space-y-2">
-                <div className="flex justify-center">
-                  <RiLoader4Line className="w-6 h-6 text-[#8116E0] animate-spin" />
+                <div className="text-[14px] font-semibold text-[#FEFFFC]">
+                  Central Sign-In Required
                 </div>
-                <div className="text-[13px] font-medium text-[#FEFFFC]">
-                  Launching Tunnel Bridge...
-                </div>
-                <p className="text-[11px] text-[#FEFFFC]/45 max-w-[240px] mx-auto font-mono">
-                  Syncing edge keys with central orchestrator (~15s)
+                <p className="text-[11.5px] text-[#FEFFFC]/60 max-w-[260px] mx-auto leading-relaxed">
+                  This node is paired and secured. Sign in with your Central account to access your node.
                 </p>
               </div>
 
-              <motion.button
-                whileHover={{ scale: 1.015 }}
-                whileTap={{ scale: 0.985 }}
-                onClick={() => router.push("/dashboard")}
-                type="button"
-                className="w-full h-11 rounded-2xl bg-[#131210] hover:bg-[#131210]/90 border border-[#FEFFFC]/[0.12] text-[#FEFFFC]/80 hover:text-[#FEFFFC] text-[13px] font-medium flex items-center justify-center transition-colors"
-              >
-                Enter Local Dashboard
-              </motion.button>
-            </div>
-          )}
-
-          {/* 2. If Tunnel Failed */}
-          {isPaired && !isSessionExpired && tunnelStatus === "failed" && (
-            <div className="space-y-4 py-2">
-              <div className="p-3.5 rounded-2xl bg-[#FF4D4D]/10 border border-[#FF4D4D]/25 space-y-1.5 text-center">
-                <div className="flex items-center justify-center gap-1.5 text-[#FF6B6B] text-[12px] font-semibold">
-                  <RiErrorWarningLine className="w-4 h-4" />
-                  <span>Tunnel Start Failure</span>
+              {authError && (
+                <div className="text-[11px] text-[#FF6B6B] bg-[#FF4D4D]/10 border border-[#FF4D4D]/20 rounded-xl px-3 py-2 font-mono flex items-center gap-2">
+                  <RiErrorWarningLine className="w-4 h-4 shrink-0 text-[#FF4D4D]" />
+                  <span>{authError}</span>
                 </div>
-                <p className="text-[11px] text-[#FFB3B3]/80 font-mono truncate px-2">
-                  {tunnelError || "Check network & tunnel connection"}
-                </p>
-              </div>
+              )}
 
-              <motion.button
+              <motion.a
                 whileHover={{ scale: 1.015 }}
                 whileTap={{ scale: 0.985 }}
-                onClick={handleRetryTunnel}
-                disabled={retryingTunnel}
-                type="button"
-                className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#8116E0] to-[#510B96] hover:brightness-110 text-[#FEFFFC] font-medium text-[13px] flex items-center justify-center gap-2 shadow-[0_8px_24px_rgba(129,22,224,0.4)] disabled:opacity-50"
+                href={`${CENTRAL_URL}/login?redirect=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin + "/auth/callback" : "")}`}
+                className="relative group w-full h-12 rounded-2xl bg-gradient-to-r from-[#8116E0] via-[#680ec2] to-[#8116E0] text-[#FEFFFC] font-medium text-[13.5px] flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(129,22,224,0.45)] hover:shadow-[0_12px_36px_rgba(129,22,224,0.6)] transition-all duration-300"
               >
-                {retryingTunnel ? (
-                  <>
-                    <RiLoader4Line className="w-4 h-4 animate-spin text-[#D0FF00]" />
-                    <span>Retrying Bridge...</span>
-                  </>
-                ) : (
-                  <>
-                    <RiRestartLine className="w-4 h-4" />
-                    <span>Restart Tunnel Service</span>
-                  </>
-                )}
-              </motion.button>
-
-              <button
-                onClick={() => router.push("/dashboard")}
-                type="button"
-                className="w-full text-center text-[11px] text-[#FEFFFC]/40 hover:text-[#FEFFFC]/70 transition-colors"
-              >
-                Continue locally without tunnel
-              </button>
+                <span>Sign in with Central</span>
+                <RiArrowRightLine className="w-4 h-4 text-[#D0FF00] group-hover:translate-x-1 transition-transform" />
+              </motion.a>
             </div>
           )}
 
-          {/* 3. Primary State: Input Code & Enter Button */}
-          {(!isPaired || isSessionExpired) && (
+          {/* 3. Unpaired Remote Notice */}
+          {!isPaired && !isLocal && (
+            <div className="p-4 rounded-2xl bg-[#000000]/50 border border-white/10 text-center space-y-2 py-4">
+              <div className="text-[13px] font-medium text-[#FEFFFC]">
+                Local Pairing Required
+              </div>
+              <p className="text-[11.5px] text-[#FEFFFC]/50 max-w-[260px] mx-auto leading-relaxed">
+                Initial node pairing can only be claimed locally on the host machine at <span className="font-mono text-[#D0FF00]">http://localhost:3000</span>.
+              </p>
+            </div>
+          )}
+
+          {/* 4. Unpaired Localhost State: Input Code & Enter Button */}
+          {!isPaired && isLocal && (
             <form onSubmit={handleAuthorize} className="space-y-4">
               {/* Node Code Input Container */}
               <div className="space-y-1.5">

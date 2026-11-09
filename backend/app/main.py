@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, APIRouter
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,14 +12,13 @@ from app.db import engine
 from app.dependencies import (
     rate_limit,
     rate_limit_user,
-    auth_limiter,
     general_limiter,
     get_client_ip,
     get_current_node_user,
 )
 from app.models.user import UserCache
 from app.routes.files import router as files_router
-from app.routes.pairing import router as pairing_router
+from app.routes.pairing import router as pairing_router, session_router as pairing_session_router
 from app.routes.shares import router as shares_router, public_slug_router
 from app.runtime import get_process_manager, BinaryDownloader
 from app.runtime.service_setup import setup_minio
@@ -128,45 +127,46 @@ app.add_middleware(
 )
 
 
+# Allowlisted public endpoints
 @app.get("/health", tags=["health"])
 async def health_check():
     log.info("Health check hit")
     return {"status": "ok"}
 
 
-# Rate-limited auth and identity endpoints
-@app.post("/signup", dependencies=[Depends(rate_limit(auth_limiter, get_client_ip))])
-@app.post("/api/v1/auth/signup", dependencies=[Depends(rate_limit(auth_limiter, get_client_ip))])
-async def signup():
-    return {"status": "ok", "message": "Signup endpoint ready"}
+# ----------- AUTHENTICATED API ROUTER (Auth by Default) ------------ #
+
+api_v1 = APIRouter(prefix="/api/v1", dependencies=[Depends(get_current_node_user)])
+
+# Mount authenticated files routes and session routes
+api_v1.include_router(files_router)
+api_v1.include_router(pairing_session_router)
 
 
-@app.post("/login", dependencies=[Depends(rate_limit(auth_limiter, get_client_ip))])
-@app.post("/api/v1/auth/login", dependencies=[Depends(rate_limit(auth_limiter, get_client_ip))])
-async def login():
-    return {"status": "ok", "message": "Login endpoint ready"}
-
-
-@app.post("/refresh", dependencies=[Depends(rate_limit(auth_limiter, get_client_ip))])
-@app.post("/api/v1/auth/refresh", dependencies=[Depends(rate_limit(auth_limiter, get_client_ip))])
-async def refresh():
-    return {"status": "ok", "message": "Refresh endpoint ready"}
-
-
-@app.get("/me", dependencies=[Depends(rate_limit_user(general_limiter))])
-@app.get("/api/v1/auth/me", dependencies=[Depends(rate_limit_user(general_limiter))])
+@api_v1.get("/me", dependencies=[Depends(rate_limit_user(general_limiter))])
+@api_v1.get("/auth/me", dependencies=[Depends(rate_limit_user(general_limiter))])
+@app.get("/me", dependencies=[Depends(get_current_node_user), Depends(rate_limit_user(general_limiter))])
 async def me(current_user: UserCache = Depends(get_current_node_user)):
     return {
         "user_id": str(current_user.user_id),
         "display_name": current_user.display_name,
+        "role": getattr(current_user, "role", "member"),
         "storage_quota_bytes": current_user.storage_quota_bytes,
         "storage_used": current_user.storage_used,
     }
 
+# Mount authenticated router
+app.include_router(api_v1)
 
-# ----------- API ENDPOINTS ------------ #
+# ----------- EXPLICIT UNAUTHENTICATED ALLOWLIST ------------ #
+# Only mount explicit allowlist endpoints without default auth:
+# 1. /health (mounted above)
+# 2. /api/v1/node-pairing/claim (require_localhost)
+# 3. /api/v1/node-pairing/status (sanitized remote response)
+# 4. /api/v1/node-pairing/tunnel/restart (require_localhost)
+# 5. /s/{slug} & /api/v1/s/{slug} (public slug file shares)
+# 6. /api/v1/shared/{resource_id} (RS256 token query param via JWKS)
 
-app.include_router(files_router, prefix="/api/v1")
 app.include_router(pairing_router, prefix="/api/v1")
 app.include_router(shares_router, prefix="/api/v1")
 app.include_router(public_slug_router)

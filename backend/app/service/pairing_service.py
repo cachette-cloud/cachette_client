@@ -1,3 +1,4 @@
+
 import asyncio
 import json
 import logging
@@ -12,18 +13,16 @@ logger = logging.getLogger("cachette.pairing")
 
 def persist_pairing_credentials(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Persist session_token, session_token_expires_at, and public_key from central's
+    Persist public_key, node_id, owner_id, and tunnel token from central's
     /node-pairing/claim response into local storage and update settings.PUBLIC_KEY in memory.
     """
-    session_token = data.get("session_token")
-    session_token_expires_at = data.get("session_token_expires_at")
     public_key = data.get("public_key")
+    owner_id = data.get("owner_id") or data.get("user_id")
 
     credentials = {
-        "session_token": session_token,
-        "session_token_expires_at": str(session_token_expires_at) if session_token_expires_at else None,
         "public_key": public_key,
         "node_id": str(data.get("node_id")) if data.get("node_id") else None,
+        "owner_id": str(owner_id) if owner_id else None,
         "cf_tunnel_token": data.get("cf_tunnel_token"),
         "subdomain": data.get("subdomain"),
     }
@@ -63,6 +62,19 @@ def get_pairing_credentials() -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error("Failed to read pairing credentials file: %s", e)
         return None
+
+
+def get_owner_user_id() -> Optional[str]:
+    """Retrieve the owner user ID from environment or persisted pairing credentials."""
+    import os
+    if env_owner := os.getenv("OWNER_ID"):
+        return env_owner.strip()
+    creds = get_pairing_credentials()
+    if not creds:
+        return None
+    if owner_id := creds.get("owner_id"):
+        return str(owner_id)
+    return None
 
 
 async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = None) -> Dict[str, Any]:
@@ -107,15 +119,14 @@ async def claim_node_pairing(pairing_code: str, central_url: Optional[str] = Non
     cf_token = persisted.get("cf_tunnel_token")
     if cf_token:
         try:
-            from app.service.tunnel_service import start_tunnel_workflow
-            asyncio.create_task(start_tunnel_workflow(cf_token))
+            from app.service.tunnel_service import trigger_tunnel_restart
+            trigger_tunnel_restart(cf_token)
         except Exception as e:
             logger.error("Failed to schedule cloudflared tunnel startup: %s", e)
 
     return {
         "status": "paired",
         "node_id": persisted.get("node_id"),
-        "session_token_expires_at": persisted.get("session_token_expires_at"),
         "subdomain": persisted.get("subdomain"),
         "tunnel_command": "Managed natively by Cachette supervisor",
     }

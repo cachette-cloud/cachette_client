@@ -15,6 +15,10 @@ from app.core.rate_limiter import default_rate_limiter
 from app.models.user import UserCache
 
 
+TEST_NODE_ID = "test-node-uuid-0000"
+TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001"
+
+
 @pytest.fixture(scope="session")
 def rsa_keypair():
     """Generate a test RSA 2048-bit keypair for RS256 token signing and verification."""
@@ -35,16 +39,28 @@ def rsa_keypair():
 
 @pytest.fixture(autouse=True)
 def setup_test_public_key(rsa_keypair):
-    """Automatically set settings.PUBLIC_KEY to the test public key for all tests."""
+    """Automatically set settings.PUBLIC_KEY and test node IDs for all tests."""
     _, public_pem = rsa_keypair
     original_key = settings.PUBLIC_KEY
+    original_node_id = settings.NODE_ID
     original_auto_download = settings.AUTO_DOWNLOAD_BINARIES
+    original_owner_env = os.environ.get("OWNER_ID")
+
     settings.PUBLIC_KEY = public_pem
+    settings.NODE_ID = TEST_NODE_ID
     settings.AUTO_DOWNLOAD_BINARIES = False
+    os.environ["OWNER_ID"] = TEST_OWNER_ID
     default_rate_limiter.clear()
+
     yield
+
     settings.PUBLIC_KEY = original_key
+    settings.NODE_ID = original_node_id
     settings.AUTO_DOWNLOAD_BINARIES = original_auto_download
+    if original_owner_env is not None:
+        os.environ["OWNER_ID"] = original_owner_env
+    else:
+        os.environ.pop("OWNER_ID", None)
     default_rate_limiter.clear()
 
 
@@ -54,9 +70,11 @@ def make_token(rsa_keypair):
     private_pem, _ = rsa_keypair
 
     def _make(
-        sub: str | None = None,
+        sub: str | None = TEST_OWNER_ID,
         ver: int | None = 1,
-        token_type: str = "access",
+        token_type: str = "node_access",
+        aud: str | None = TEST_NODE_ID,
+        role: str | None = "owner",
         custom_claims: dict | None = None,
         private_key: str | None = None,
     ) -> str:
@@ -67,6 +85,16 @@ def make_token(rsa_keypair):
             payload["ver"] = ver
         if token_type is not None:
             payload["type"] = token_type
+        if token_type == "node_access":
+            if aud is not None:
+                payload["aud"] = aud
+            if role is not None:
+                payload["role"] = role
+        else:
+            if aud is not None and aud != TEST_NODE_ID:
+                payload["aud"] = aud
+            if role is not None and role != "owner":
+                payload["role"] = role
         if custom_claims:
             payload.update(custom_claims)
 
