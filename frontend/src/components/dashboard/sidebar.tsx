@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { getSessionToken } from '@/lib/api';
 import LogoIcon from '@/assets/logo-icon';
 import { Progress } from '@/components/ui/progress';
 import { AnimatePresence, motion } from 'motion/react';
@@ -11,6 +13,8 @@ import {
   RiDeleteBinLine,
   RiShieldCheckLine,
   RiCloseLine,
+  RiKey2Line,
+  RiCheckLine,
 } from 'react-icons/ri';
 
 interface SidebarProps {
@@ -100,13 +104,15 @@ export default function Sidebar({ activeItem = 'files', isOpen = false, onClose 
             </span>
           </div>
         </div>
-        <Link
-          href="/auth"
-          className="p-1.5 text-white/40 hover:text-emerald-400 transition-colors rounded-lg hover:bg-white/[0.04]"
-          title="Node Pairing Status"
-        >
-          <RiShieldCheckLine className="w-4 h-4 text-emerald-400/80" />
-        </Link>
+        <div className="flex items-center gap-1 shrink-0">
+          <Link
+            href="/auth"
+            className="p-1.5 text-white/40 hover:text-emerald-400 transition-colors rounded-lg hover:bg-white/[0.04]"
+            title="Node Pairing Status"
+          >
+            <RiShieldCheckLine className="w-4 h-4 text-emerald-400/80" />
+          </Link>
+        </div>
       </div>
     </>
   );

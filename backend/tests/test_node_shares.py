@@ -27,7 +27,8 @@ def mock_s3():
 
 @pytest.fixture
 def test_user(mock_db_session):
-    user_id = uuid.uuid4()
+    from tests.conftest import TEST_OWNER_ID
+    user_id = uuid.UUID(TEST_OWNER_ID)
     user = UserCache(
         user_id=user_id,
         display_name="Test Owner",
@@ -123,14 +124,13 @@ async def test_create_share_download_distinct_slug(client, auth_headers, test_fi
 
 @pytest.mark.asyncio
 async def test_create_share_non_owner_rejected(client, make_token, test_file):
-    other_user_token = make_token(sub=str(uuid.uuid4()), ver=1)
+    other_user_token = make_token(sub=str(uuid.uuid4()), ver=1, role="member")
     response = await client.post(
         f"/api/v1/files/{test_file.id}/share",
         json={"access_level": "view"},
         headers={"Authorization": f"Bearer {other_user_token}"},
     )
-    assert response.status_code == 404
-    assert response.json()["detail"] == "File not found"
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio

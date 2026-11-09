@@ -24,27 +24,220 @@ import {
 
 export default function MyDrivePage() {
   const {
-    breadcrumbs,
-    currentFolderId,
-    refreshDirectory,
-    folders,
-    files,
-    isLoading,
-    searchQuery,
-    viewMode,
-    setViewMode,
-    detailsOpen,
-    setDetailsOpen,
-    setNewFolderOpen,
-    triggerFileUpload,
-    openRenameDialog,
-    openDeleteDialog,
-  } = useDashboard();
+    isAuthenticated,
+    isPaired,
+    isSessionExpired,
+    isExpiringSoon,
+    isLoading: authLoading,
+  } = useAuth();
 
-  // Search filtering
-  const query = searchQuery.toLowerCase().trim();
-  const filteredFolders = folders.filter((f) => f.name.toLowerCase().includes(query));
-  const filteredFiles = files.filter((f) => f.filename.toLowerCase().includes(query));
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folders, setFolders] = useState<FolderOut[]>([]);
+  const [files, setFiles] = useState<FileOut[]>([]);
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Delete file confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Share file state
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [fileToShare, setFileToShare] = useState<FileOut | null>(null);
+
+  // Delete folder confirmation
+  const [deleteFolderDialogOpen, setDeleteFolderDialogOpen] = useState(false);
+  const [folderToDelete, setFolderToDelete] = useState<string | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState(false);
+
+  // Rename state
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameType, setRenameType] = useState<"file" | "folder" | null>(null);
+  const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  // New folder state
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
+
+  const handleCreateFolder = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!newFolderName.trim()) return;
+    setCreatingFolder(true);
+    setFolderError(null);
+    try {
+      await apiCreateFolder(newFolderName.trim(), currentFolderId);
+      setNewFolderDialogOpen(false);
+      setNewFolderName("");
+      loadDirectory(currentFolderId);
+    } catch (err: any) {
+      console.error("Failed to create folder:", err);
+      setFolderError(err.detail || "Failed to create folder");
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const loadDirectory = useCallback(async (folderId: string | null) => {
+    setIsLoading(true);
+    try {
+      const listing = await apiListDirectory(folderId);
+      setFolders(listing.folders);
+      setFiles(listing.files);
+
+      // Update current folder state
+      setCurrentFolderId(folderId);
+
+      // Update breadcrumbs
+      if (folderId === null) {
+        setBreadcrumbs([]);
+      } else if (listing.folder) {
+        setBreadcrumbs((prev) => {
+          // Check if we're going back
+          const existingIdx = prev.findIndex((b) => b.id === folderId);
+          if (existingIdx >= 0) {
+            return prev.slice(0, existingIdx + 1);
+          }
+          // Going deeper
+          return [
+            ...prev,
+            { id: listing.folder!.id, name: listing.folder!.name },
+          ];
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load directory:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Auth guard: redirect to auth screen if node is unpaired or user is unauthenticated
+  useEffect(() => {
+    if (!authLoading && (!isPaired || !isAuthenticated)) {
+      router.push("/auth");
+    }
+  }, [authLoading, isPaired, isAuthenticated, router]);
+
+  // Load root directory
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadDirectory(null);
+    }
+  }, [isAuthenticated, loadDirectory]);
+
+  const handleFolderClick = (folderId: string) => {
+    loadDirectory(folderId);
+  };
+
+  const handleBreadcrumbNavigate = (folderId: string | null) => {
+    loadDirectory(folderId);
+  };
+
+  const handleDeleteFile = (fileId: string) => {
+    setFileToDelete(fileId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!fileToDelete) return;
+    setDeleting(true);
+    try {
+      await apiDeleteFile(fileToDelete);
+      loadDirectory(currentFolderId);
+    } catch (err) {
+      console.error("Delete failed:", err);
+    } finally {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+      setFileToDelete(null);
+    }
+  };
+
+  const handleDeleteFolderClick = (folderId: string) => {
+    setFolderToDelete(folderId);
+    setDeleteFolderDialogOpen(true);
+  };
+
+  const confirmDeleteFolder = async () => {
+    if (!folderToDelete) return;
+    setDeletingFolder(true);
+    try {
+      const { apiDeleteFolder } = await import("@/lib/api");
+      await apiDeleteFolder(folderToDelete);
+      loadDirectory(currentFolderId);
+    } catch (err) {
+      console.error("Folder delete failed:", err);
+    } finally {
+      setDeletingFolder(false);
+      setDeleteFolderDialogOpen(false);
+      setFolderToDelete(null);
+    }
+  };
+
+  const handleRenameFileClick = (fileId: string, currentName: string) => {
+    setRenameType("file");
+    setRenameTargetId(fileId);
+    setRenameName(currentName);
+    setRenameError(null);
+    setRenameDialogOpen(true);
+  };
+
+  const handleRenameFolderClick = (folderId: string, currentName: string) => {
+    setRenameType("folder");
+    setRenameTargetId(folderId);
+    setRenameName(currentName);
+    setRenameError(null);
+    setRenameDialogOpen(true);
+  };
+
+  const handleRenameSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!renameTargetId || !renameType || !renameName.trim()) return;
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      const { apiRenameFile, apiRenameFolder } = await import("@/lib/api");
+      if (renameType === "file") {
+        await apiRenameFile(renameTargetId, renameName.trim());
+      } else {
+        await apiRenameFolder(renameTargetId, renameName.trim());
+      }
+      setRenameDialogOpen(false);
+      loadDirectory(currentFolderId);
+    } catch (err: any) {
+      console.error("Rename failed:", err);
+      setRenameError(err.detail || "Failed to rename item");
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const handleDownloadFile = async (fileId: string) => {
+    try {
+      const { apiDownloadFile } = await import("@/lib/api");
+      await apiDownloadFile(fileId);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Failed to start download");
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isPaired) return null;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

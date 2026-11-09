@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   apiGetNodeSession,
+  apiGetPairingStatus,
   apiRestartTunnel,
   setSessionToken,
   clearSessionToken,
@@ -13,6 +14,8 @@ import {
 
 interface AuthContextValue {
   isPaired: boolean;
+  needsLogin: boolean;
+  authError: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   tunnelStatus: 'unpaired' | 'starting' | 'ready' | 'failed';
@@ -33,6 +36,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isPaired, setIsPaired] = useState<boolean>(false);
+  const [needsLogin, setNeedsLogin] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [tunnelStatus, setTunnelStatus] = useState<'unpaired' | 'starting' | 'ready' | 'failed'>('unpaired');
   const [tunnelReady, setTunnelReady] = useState<boolean>(false);
   const [tunnelError, setTunnelError] = useState<string | null>(null);
@@ -56,6 +61,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (diffMs <= 0) {
         setIsSessionExpired(true);
         setIsExpiringSoon(false);
+        clearSessionToken();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
+          const centralUrl = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
+          const redirectUrl = encodeURIComponent(window.location.origin + '/auth/callback');
+          window.location.href = `${centralUrl}/login?redirect=${redirectUrl}`;
+        }
       } else if (diffMs < 24 * 60 * 60 * 1000) {
         // Less than 24 hours remaining
         setIsExpiringSoon(true);
@@ -68,33 +79,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshSession = useCallback(async (): Promise<NodeSessionResponse | null> => {
+    setIsLoading(true);
+    setAuthError(null);
     try {
-      const session = await apiGetNodeSession();
-      if (session.paired && session.session_token) {
-        setSessionToken(session.session_token, session.session_token_expires_at);
-        setIsPaired(true);
-        setTunnelStatus(session.tunnel_status || 'unpaired');
-        setTunnelReady(Boolean(session.tunnel_ready));
-        setTunnelError(session.tunnel_error || null);
-        setUser(session.user || null);
-        setSessionTokenExpiresAt(session.session_token_expires_at || null);
-        setNodeInfo({
-          node_id: session.node_id,
-          subdomain: session.subdomain,
-        });
-        checkTokenExpiry(session.session_token_expires_at);
-      } else {
+      // Step 1: Check pairing status
+      const status = await apiGetPairingStatus().catch((err) => {
+        console.warn('Failed to fetch pairing status:', err);
+        return null;
+      });
+
+      if (!status) {
+        setAuthError('Unable to connect to Cachette node');
+        return null;
+      }
+
+      if (!status.paired) {
         setIsPaired(false);
+        setNeedsLogin(false);
         setTunnelStatus('unpaired');
         setTunnelReady(false);
         setTunnelError(null);
         setUser(null);
         clearSessionToken();
+        return null;
       }
-      return session;
-    } catch (err) {
-      // If node is unreachable or returns error
-      console.warn('Failed to fetch node session:', err);
+
+      // Node is paired
+      setIsPaired(true);
+      if (status.tunnel_status) {
+        setTunnelStatus(status.tunnel_status as any);
+      }
+      if (typeof status.tunnel_ready === 'boolean') {
+        setTunnelReady(status.tunnel_ready);
+      }
+      if (status.node_id || status.subdomain) {
+        setNodeInfo({
+          node_id: status.node_id,
+          subdomain: status.subdomain,
+        });
+      }
+
+      // Step 2: Fetch active session with bearer token if available
+      try {
+        const session = await apiGetNodeSession();
+        setNeedsLogin(false);
+        setTunnelStatus(session.tunnel_status || (status.tunnel_status as any) || 'unpaired');
+        setTunnelReady(Boolean(session.tunnel_ready ?? status.tunnel_ready));
+        setTunnelError(session.tunnel_error || null);
+        setUser(session.user || null);
+        setSessionTokenExpiresAt(session.session_token_expires_at || null);
+        if (session.node_id || session.subdomain) {
+          setNodeInfo({
+            node_id: session.node_id,
+            subdomain: session.subdomain,
+          });
+        }
+        checkTokenExpiry(session.session_token_expires_at);
+        return session;
+      } catch (sessionErr: any) {
+        if (sessionErr?.status === 401) {
+          // Paired, but no valid token on this browser
+          setNeedsLogin(true);
+          setUser(null);
+          clearSessionToken();
+        } else if (sessionErr?.status === 403) {
+          setAuthError('Access forbidden: You do not have access to this node.');
+        } else {
+          console.warn('Failed to fetch node session:', sessionErr);
+        }
+        return null;
+      }
+    } catch (err: any) {
+      console.warn('Error during session refresh:', err);
       return null;
     } finally {
       setIsLoading(false);
@@ -114,12 +170,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (typeof window !== 'undefined') {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const incomingToken = hashParams.get('token') || hashParams.get('access_token');
+      const incomingExpires = hashParams.get('expires_at') || hashParams.get('session_token_expires_at');
+      if (incomingToken) {
+        setSessionToken(incomingToken, incomingExpires);
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+
     refreshSession();
 
     // Subscribe to 401 session expired triggers from api.ts
     const unsubscribe = onSessionExpired(() => {
       setIsSessionExpired(true);
+      setNeedsLogin(true);
+      clearSessionToken();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
+        const centralUrl = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
+        const redirectUrl = encodeURIComponent(window.location.origin + '/auth/callback');
+        window.location.href = `${centralUrl}/login?redirect=${redirectUrl}`;
+      }
     });
 
     return () => {
@@ -134,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     clearSessionToken();
     setUser(null);
-    setIsPaired(false);
+    setNeedsLogin(true);
     setIsSessionExpired(false);
   };
 
@@ -142,8 +214,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         isPaired,
+        needsLogin,
+        authError,
         isLoading,
-        isAuthenticated: isPaired && !isSessionExpired && (tunnelReady || tunnelStatus === 'ready'),
+        isAuthenticated: isPaired && Boolean(user) && !isSessionExpired && (tunnelReady || tunnelStatus === 'ready'),
         tunnelStatus,
         tunnelReady,
         tunnelError,

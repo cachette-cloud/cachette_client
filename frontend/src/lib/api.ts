@@ -75,8 +75,10 @@ async function fetchApi<T>(
   });
 
   if (res.status === 401) {
-    notifySessionExpired();
-    throw new ApiError(401, 'Session expired or invalid — please re-pair from central dashboard');
+    if (token) {
+      notifySessionExpired();
+    }
+    throw new ApiError(401, token ? 'Session expired or invalid — please re-pair from central dashboard' : 'Authentication required');
   }
 
   if (!res.ok) {
@@ -189,6 +191,7 @@ export async function apiClaimPairing(
 ): Promise<{
   status: string;
   node_id?: string;
+  session_token?: string;
   session_token_expires_at?: string;
   subdomain?: string;
 }> {
@@ -298,7 +301,7 @@ export async function apiInitiateUpload(
   contentType: string,
   folderId?: string | null,
 ): Promise<UploadInitiateResponse> {
-  return fetchApi<UploadInitiateResponse>('/api/v1/files/uploads/initate', {
+  return fetchApi<UploadInitiateResponse>('/api/v1/files/uploads/initiate', {
     method: 'POST',
     body: JSON.stringify({
       filename,

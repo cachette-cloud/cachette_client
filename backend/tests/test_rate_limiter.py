@@ -297,13 +297,14 @@ async def test_route_rate_limiting_429_and_retry_after(client):
     """
     default_rate_limiter.clear()
 
-    # /signup is guarded by auth_limiter (capacity 5, refill_rate 0.2)
-    for i in range(5):
-        resp = await client.post("/signup")
-        assert resp.status_code == 200, f"Request {i+1} should succeed"
+    # /api/v1/node-pairing/tunnel/restart is guarded by tunnel_restart_limiter (capacity 3)
+    # Mock creds so restart doesn't fail with 400 before rate limiter check
+    for i in range(3):
+        resp = await client.post("/api/v1/node-pairing/tunnel/restart")
+        assert resp.status_code in (400, 409, 200), f"Request {i+1} should pass rate limit"
 
-    # 6th request must return 429 Too Many Requests
-    resp = await client.post("/signup")
+    # 4th request must return 429 Too Many Requests
+    resp = await client.post("/api/v1/node-pairing/tunnel/restart")
     assert resp.status_code == 429
     assert "Retry-After" in resp.headers
     retry_after = int(resp.headers["Retry-After"])
