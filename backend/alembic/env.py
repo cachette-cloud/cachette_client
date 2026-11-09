@@ -3,14 +3,13 @@ from pathlib import Path
 from logging.config import fileConfig
 import asyncio
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.models import file, file_share, share_link, folder, user
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from app.config import settings
 from app.db.base import Base
 
@@ -19,8 +18,8 @@ from app.db.base import Base
 config = context.config
 
 # Interpret the config file for Python logging.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+if config.config_file_name is not None and not config.attributes.get("skip_logging_config", False):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Point Alembic at our real DB URL from settings, not alembic.ini
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
@@ -54,7 +53,7 @@ def do_run_migrations(connection) -> None:
         context.run_migrations()
 
 
-async def run_migrations_online() -> None:
+async def run_async_migrations() -> None:
     """Run migrations in 'online' mode, using an async engine."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -68,7 +67,16 @@ async def run_migrations_online() -> None:
     await connectable.dispose()
 
 
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    connectable = config.attributes.get("connection", None)
+    if connectable is not None:
+        do_run_migrations(connectable)
+    else:
+        asyncio.run(run_async_migrations())
+
+
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    asyncio.run(run_migrations_online())
+    run_migrations_online()

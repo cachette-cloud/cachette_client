@@ -36,6 +36,7 @@ export default function ShareModal({ file, open, onOpenChange }: ShareModalProps
   // Fetch or create share link whenever modal opens or access level changes
   useEffect(() => {
     if (!open || !file) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShareData(null);
       setCopied(false);
       setError(null);

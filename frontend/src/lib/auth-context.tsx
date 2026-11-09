@@ -163,8 +163,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTunnelError(null);
       await apiRestartTunnel();
       await refreshSession();
-    } catch (err: any) {
-      setTunnelError(err.message || 'Failed to trigger tunnel restart');
+    } catch (err: unknown) {
+      setTunnelError(err instanceof Error ? err.message : 'Failed to trigger tunnel restart');
       setTunnelStatus('failed');
     }
   };

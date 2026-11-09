@@ -85,39 +85,58 @@ NEXT_PUBLIC_CENTRAL_URL=https://cachette.cloud
 }
 
 # ------------------------------------------------------------------------------
-# 3. Setup Backend Environment
+# 3. Setup Backend Environment (via uv)
 # ------------------------------------------------------------------------------
 Write-Host "`n[3/4] Setting up Backend virtual environment..." -ForegroundColor Yellow
 
+$UvBin = "$ProjectRoot\data\bin\uv.exe"
+if (-not (Test-Path $UvBin) -and (Get-Command uv -ErrorAction SilentlyContinue)) {
+    $UvBin = (Get-Command uv).Source
+}
+
 Set-Location "$ProjectRoot\backend"
-if (-not (Test-Path ".venv")) {
-    python -m venv .venv
-    Write-Host "  Created backend\.venv" -ForegroundColor Green
+
+if (Test-Path $UvBin) {
+    Write-Host "  Using uv ($UvBin) for ultra-fast dependency installation..." -ForegroundColor Cyan
+    if (-not (Test-Path ".venv")) {
+        & $UvBin venv .venv
+        if ($LASTEXITCODE -ne 0) { Write-Host "uv venv failed" -ForegroundColor Red; exit 1 }
+        Write-Host "  Created backend\.venv" -ForegroundColor Green
+    }
+    $VenvPython = "$ProjectRoot\backend\.venv\Scripts\python.exe"
+    & $UvBin pip install -r requirements.txt --python $VenvPython
+    if ($LASTEXITCODE -ne 0) { Write-Host "uv pip install failed" -ForegroundColor Red; exit 1 }
+} else {
+    Write-Host "  uv not found, falling back to python -m venv and pip..." -ForegroundColor Yellow
+    if (-not (Test-Path ".venv")) {
+        python -m venv .venv
+        Write-Host "  Created backend\.venv" -ForegroundColor Green
+    }
+    $VenvPython = "$ProjectRoot\backend\.venv\Scripts\python.exe"
+    & $VenvPython -m pip install -r requirements.txt
+    if ($LASTEXITCODE -ne 0) { Write-Host "Dependency install failed" -ForegroundColor Red; exit 1 }
 }
 
 $VenvPython = "$ProjectRoot\backend\.venv\Scripts\python.exe"
-
-& $VenvPython -m pip install --upgrade pip
-if ($LASTEXITCODE -ne 0) { Write-Host "pip upgrade failed" -ForegroundColor Red; exit 1 }
-
-& $VenvPython -m pip install -r requirements.txt
-if ($LASTEXITCODE -ne 0) { Write-Host "Dependency install failed" -ForegroundColor Red; exit 1 }
-
 & $VenvPython -m alembic upgrade head
 if ($LASTEXITCODE -ne 0) { Write-Host "Alembic migration failed" -ForegroundColor Red; exit 1 }
 
 Set-Location $ProjectRoot
 
 # ------------------------------------------------------------------------------
-# 4. Setup Frontend Dependencies
+# 4. Setup Frontend Dependencies & Build
 # ------------------------------------------------------------------------------
-Write-Host "`n[4/4] Installing frontend dependencies..." -ForegroundColor Yellow
+Write-Host "`n[4/4] Installing frontend dependencies and building production assets..." -ForegroundColor Yellow
 Set-Location "$ProjectRoot\frontend"
 if (Get-Command pnpm -ErrorAction SilentlyContinue) {
     pnpm install
 } else {
     npm install
 }
+
+Write-Host "  Building frontend..." -ForegroundColor Cyan
+npm run build
+if ($LASTEXITCODE -ne 0) { Write-Host "Frontend build failed" -ForegroundColor Red; exit 1 }
 Set-Location $ProjectRoot
 
 Write-Host "`n====================================================" -ForegroundColor Green
@@ -131,6 +150,6 @@ Write-Host "    .\.venv\Scripts\Activate.ps1"
 Write-Host "    uvicorn app.main:app --port 8000`n"
 Write-Host "  Terminal 2 (Frontend):" -ForegroundColor Cyan
 Write-Host "    cd frontend"
-Write-Host "    npm run dev`n"
+Write-Host "    npm run start`n"
 Write-Host "Once started, open http://localhost:3000 to pair your node with Central." -ForegroundColor Yellow
 Write-Host "====================================================" -ForegroundColor Green
