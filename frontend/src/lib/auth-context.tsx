@@ -7,10 +7,35 @@ import {
   apiRestartTunnel,
   setSessionToken,
   clearSessionToken,
+  getSessionTokenExpiresAt,
   onSessionExpired,
   type UserCacheOut,
   type NodeSessionResponse,
 } from './api';
+
+const REDIRECT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const REDIRECT_KEY = 'last_central_auto_redirect';
+
+function canAutoRedirectToCentral(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const last = sessionStorage.getItem(REDIRECT_KEY);
+    if (!last) return true;
+    const elapsed = Date.now() - parseInt(last, 10);
+    return elapsed > REDIRECT_COOLDOWN_MS;
+  } catch {
+    return true;
+  }
+}
+
+function recordCentralAutoRedirect(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(REDIRECT_KEY, Date.now().toString());
+  } catch {
+    // ignore
+  }
+}
 
 interface AuthContextValue {
   isPaired: boolean;
@@ -48,13 +73,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [nodeInfo, setNodeInfo] = useState<{ node_id?: string | null; subdomain?: string | null } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  const redirectToCentral = (reason: string) => {
+    if (typeof window === 'undefined' || window.location.pathname.startsWith('/auth')) {
+      return;
+    }
+    if (!canAutoRedirectToCentral()) {
+      console.warn(`Blocked auto-redirect to Central (${reason}) to prevent redirect loop`);
+      setAuthError('Authentication loop detected. Node session could not be established. Please sign in manually.');
+      return;
+    }
+    recordCentralAutoRedirect();
+    const centralUrl = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
+    const redirectUrl = encodeURIComponent(window.location.origin + '/auth/callback');
+    window.location.href = `${centralUrl}/login?redirect=${redirectUrl}`;
+  };
+
   const checkTokenExpiry = (expiresAtStr?: string | null) => {
-    if (!expiresAtStr) {
+    const expiry = expiresAtStr || getSessionTokenExpiresAt();
+    if (!expiry) {
       setIsExpiringSoon(false);
       return;
     }
     try {
-      const expiresAt = new Date(expiresAtStr).getTime();
+      const expiresAt = new Date(expiry).getTime();
       const now = Date.now();
       const diffMs = expiresAt - now;
 
@@ -62,11 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsSessionExpired(true);
         setIsExpiringSoon(false);
         clearSessionToken();
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
-          const centralUrl = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
-          const redirectUrl = encodeURIComponent(window.location.origin + '/auth/callback');
-          window.location.href = `${centralUrl}/login?redirect=${redirectUrl}`;
-        }
+        redirectToCentral('token_expired');
       } else if (diffMs < 24 * 60 * 60 * 1000) {
         // Less than 24 hours remaining
         setIsExpiringSoon(true);
@@ -127,14 +164,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setTunnelReady(Boolean(session.tunnel_ready ?? status.tunnel_ready));
         setTunnelError(session.tunnel_error || null);
         setUser(session.user || null);
-        setSessionTokenExpiresAt(session.session_token_expires_at || null);
+        const storedExpiry = getSessionTokenExpiresAt();
+        setSessionTokenExpiresAt(storedExpiry || null);
         if (session.node_id || session.subdomain) {
           setNodeInfo({
             node_id: session.node_id,
             subdomain: session.subdomain,
           });
         }
-        checkTokenExpiry(session.session_token_expires_at);
+        checkTokenExpiry(storedExpiry);
         return session;
       } catch (sessionErr: any) {
         if (sessionErr?.status === 401) {
@@ -170,7 +208,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    // Only parse fragment here if not on /auth/callback to prevent hash clearing races with AuthCallbackPage
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth/callback')) {
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const incomingToken = hashParams.get('token') || hashParams.get('access_token');
       const incomingExpires = hashParams.get('expires_at') || hashParams.get('session_token_expires_at');
@@ -180,18 +219,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    refreshSession();
+    // AuthCallbackPage handles refreshSession directly after writing token
+    if (typeof window === 'undefined' || !window.location.pathname.startsWith('/auth/callback')) {
+      refreshSession();
+    }
 
     // Subscribe to 401 session expired triggers from api.ts
     const unsubscribe = onSessionExpired(() => {
       setIsSessionExpired(true);
       setNeedsLogin(true);
       clearSessionToken();
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
-        const centralUrl = process.env.NEXT_PUBLIC_CENTRAL_URL || 'https://cachette.cloud';
-        const redirectUrl = encodeURIComponent(window.location.origin + '/auth/callback');
-        window.location.href = `${centralUrl}/login?redirect=${redirectUrl}`;
-      }
+      redirectToCentral('session_expired_401');
     });
 
     return () => {
@@ -217,7 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         needsLogin,
         authError,
         isLoading,
-        isAuthenticated: isPaired && Boolean(user) && !isSessionExpired && (tunnelReady || tunnelStatus === 'ready'),
+        isAuthenticated: isPaired && Boolean(user) && !isSessionExpired,
         tunnelStatus,
         tunnelReady,
         tunnelError,

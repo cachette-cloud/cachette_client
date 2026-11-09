@@ -187,7 +187,7 @@ async def ensure_cloudflared_on_startup() -> None:
             creds = json.load(f)
 
         token = creds.get("cf_tunnel_token")
-        if token and creds.get("session_token"):
+        if token:
             logger.info("Startup: Found persisted pairing credentials, starting native cloudflared...")
             await start_tunnel_workflow(token)
         else:

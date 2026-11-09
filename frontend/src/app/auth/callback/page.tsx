@@ -3,32 +3,55 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { setSessionToken } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { RiLoader4Line } from 'react-icons/ri';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
+  const { refreshSession } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      // Parse token from URL fragment (#token=...&expires_at=...)
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const token = params.get('token') || params.get('access_token');
-      const expiresAt = params.get('expires_at') || params.get('session_token_expires_at');
+    let active = true;
 
-      if (token) {
+    async function processCallback() {
+      try {
+        // Parse token from URL fragment (#token=...&expires_at=...)
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const token = params.get('token') || params.get('access_token');
+        const expiresAt = params.get('expires_at') || params.get('session_token_expires_at');
+
+        if (!token) {
+          setError('No authentication token received from Central.');
+          return;
+        }
+
         setSessionToken(token, expiresAt);
         // Clean fragment from browser history
         window.history.replaceState(null, '', window.location.pathname);
-        router.replace('/dashboard');
-      } else {
-        setError('No authentication token received from Central.');
+
+        // Fetch session with new token to verify authorization and populate user state
+        const session = await refreshSession();
+        if (!active) return;
+
+        if (session && session.user) {
+          router.replace('/dashboard');
+        } else {
+          setError('Node rejected the Central token or session could not be established.');
+        }
+      } catch (err: any) {
+        if (!active) return;
+        setError(err?.message || 'Failed to process authentication callback.');
       }
-    } catch (err: any) {
-      setError(err?.message || 'Failed to process authentication callback.');
     }
-  }, [router]);
+
+    processCallback();
+
+    return () => {
+      active = false;
+    };
+  }, [router, refreshSession]);
 
   return (
     <div className="min-h-screen bg-[#000000] text-[#FEFFFC] flex flex-col items-center justify-center p-4">
