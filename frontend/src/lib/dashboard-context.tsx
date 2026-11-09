@@ -433,8 +433,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
           await apiCompleteUpload(initRes.file_id, parts);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Upload failed for file:', file.name, err);
+        const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : 'Upload failed';
+        alert(`Failed to upload ${file.name}: ${msg}`);
       }
     }
 

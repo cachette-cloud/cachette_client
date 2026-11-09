@@ -1,3 +1,5 @@
+import shutil
+from pathlib import Path
 from app import dependencies
 from sqlalchemy import SelectLabelStyle
 from sqlalchemy import select
@@ -9,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_node_user, get_s3_service, rate_limit_user, general_limiter
+from app.dependencies import get_current_node_user, require_owner, get_s3_service, rate_limit_user, general_limiter
 from app.models.user import UserCache
 from app.models.file import File
 from app.models.folder import Folder
@@ -22,7 +24,8 @@ from app.core.slug import generate_share_slug
 
 router = APIRouter(prefix="/files", tags = ["files"])
 
-@router.post("/uploads/initate", response_model = UploadInitiateResponse, dependencies=[Depends(rate_limit_user(general_limiter))])
+@router.post("/uploads/initiate", response_model=UploadInitiateResponse, dependencies=[Depends(rate_limit_user(general_limiter))])
+@router.post("/uploads/initate", response_model=UploadInitiateResponse, dependencies=[Depends(rate_limit_user(general_limiter))], include_in_schema=False, deprecated=True)
 async def initiate_upload(
     body: UploadInitiate,
     current_user: UserCache = Depends(get_current_node_user),
@@ -30,7 +33,7 @@ async def initiate_upload(
     s3: s3_service = Depends(get_s3_service),
 ):
     if body.size > settings.MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail = f"file exceeds max size of {settings.MAX_FILE_SIZE} bytes")
+        raise HTTPException(status_code=413, detail=f"file exceeds max size of {settings.MAX_FILE_SIZE} bytes")
     
     existing_file = await db.execute(
         select(File).where(
@@ -43,9 +46,22 @@ async def initiate_upload(
     if existing_file.scalars().first():
         raise HTTPException(400, "A file with this name already exists in this folder")
     
+    # Per-user quota check
     if current_user.storage_used + body.size > current_user.storage_quota_bytes:
         remaining = current_user.storage_quota_bytes - current_user.storage_used
         raise HTTPException(413, f"Storage quota exceeded. {remaining} bytes remaining")
+
+    # Node-wide disk capacity cap: reject uploads if free disk space is insufficient
+    storage_path = Path(settings.CACHETTE_DATA_DIR)
+    if not storage_path.exists():
+        storage_path = storage_path.parent
+    try:
+        _, _, free_disk_bytes = shutil.disk_usage(storage_path)
+    except Exception:
+        free_disk_bytes = float("inf")
+
+    if body.size > free_disk_bytes:
+        raise HTTPException(413, f"Node storage capacity exceeded: Insufficient disk space on node ({free_disk_bytes} bytes free)")
 
     file_id = uuid.uuid4()
     key = f"users/{current_user.id}/{file_id}"
@@ -445,16 +461,17 @@ def build_share_url(slug: str, request_base_url: Optional[str] = None) -> str:
     return f"http://localhost:8000/s/{slug}"
 
 
+# Product decision: public share link generation is restricted to the node owner.
 @router.post(
     "/{file_id}/share",
     response_model=ShareOut,
-    dependencies=[Depends(rate_limit_user(general_limiter))],
+    dependencies=[Depends(require_owner), Depends(rate_limit_user(general_limiter))],
 )
 async def create_or_get_file_share(
     file_id: uuid.UUID,
     body: ShareCreate,
     request: Request,
-    current_user: UserCache = Depends(get_current_node_user),
+    current_user: UserCache = Depends(require_owner),
     db: AsyncSession = Depends(get_db),
 ):
     """

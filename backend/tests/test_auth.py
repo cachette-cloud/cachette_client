@@ -57,7 +57,7 @@ async def test_decode_token_malformed():
 @pytest.mark.asyncio
 async def test_get_current_node_user_success(make_token, mock_db_session):
     user_id = str(uuid.uuid4())
-    token = make_token(sub=user_id, ver=2, custom_claims={"display_name": "Test Alice"})
+    token = make_token(sub=user_id, ver=2, role="member", custom_claims={"name": "Test Alice"})
 
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     user_cache = await get_current_node_user(credentials=creds, db=mock_db_session)
@@ -67,6 +67,7 @@ async def test_get_current_node_user_success(make_token, mock_db_session):
     assert str(user_cache.id) == user_id
     assert user_cache.display_name == "Test Alice"
     assert user_cache["sub"] == user_id
+    assert user_cache.role == "member"
 
 
 @pytest.mark.asyncio
@@ -133,15 +134,14 @@ async def test_persist_pairing_credentials(tmp_path, monkeypatch, rsa_keypair):
 
     sample_claim = {
         "node_id": str(uuid.uuid4()),
-        "session_token": "test-session-token-xyz",
-        "session_token_expires_at": "2026-10-01T00:00:00Z",
+        "owner_id": str(uuid.uuid4()),
         "public_key": public_pem,
         "cf_tunnel_token": "cf-test-token",
         "subdomain": "node-1",
     }
 
     persisted = persist_pairing_credentials(sample_claim)
-    assert persisted["session_token"] == "test-session-token-xyz"
+    assert "session_token" not in persisted
     assert persisted["public_key"] == public_pem
     assert settings.PUBLIC_KEY == public_pem
 
@@ -153,7 +153,8 @@ async def test_persist_pairing_credentials(tmp_path, monkeypatch, rsa_keypair):
     # Verify retrieval
     creds = get_pairing_credentials()
     assert creds is not None
-    assert creds["session_token"] == "test-session-token-xyz"
+    assert creds["node_id"] == sample_claim["node_id"]
+    assert "session_token" not in creds
 
 
 @pytest.mark.asyncio

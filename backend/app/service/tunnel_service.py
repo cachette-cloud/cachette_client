@@ -16,6 +16,31 @@ from app.runtime.service_setup import setup_cloudflared
 
 logger = logging.getLogger("cachette.tunnel")
 
+_restart_lock: Optional[asyncio.Lock] = None
+_restart_task: Optional[asyncio.Task] = None
+
+
+def _get_restart_lock() -> asyncio.Lock:
+    global _restart_lock
+    if _restart_lock is None:
+        _restart_lock = asyncio.Lock()
+    return _restart_lock
+
+
+def is_tunnel_restart_in_progress() -> bool:
+    lock = _get_restart_lock()
+    return lock.locked() or (_restart_task is not None and not _restart_task.done())
+
+
+def trigger_tunnel_restart(token: str) -> asyncio.Task:
+    """Schedule tunnel restart workflow under lock and retain task reference."""
+    global _restart_task
+    if is_tunnel_restart_in_progress():
+        raise RuntimeError("Tunnel restart already in progress")
+    _restart_task = asyncio.create_task(start_tunnel_workflow(token))
+    return _restart_task
+
+
 # In-memory tracking of tunnel lifecycle state
 _tunnel_state: Dict[str, Any] = {
     "status": "unpaired",  # "unpaired" | "starting" | "ready" | "failed"
@@ -118,32 +143,33 @@ async def start_tunnel_workflow(token: str) -> None:
     4. Waits for connection registration confirmation
     5. Updates state to 'ready' or 'failed'
     """
-    if not token:
-        _update_state("unpaired", False, "Missing tunnel token")
-        return
+    async with _get_restart_lock():
+        if not token:
+            _update_state("unpaired", False, "Missing tunnel token")
+            return
 
-    _update_state("starting", False, None)
+        _update_state("starting", False, None)
 
-    # 1. Update .env files
-    write_tunnel_token_to_env(token)
+        # 1. Update .env files
+        write_tunnel_token_to_env(token)
 
-    # 2. Start native process in executor
-    loop = asyncio.get_event_loop()
-    started, start_msg = await loop.run_in_executor(None, start_cloudflared, token)
+        # 2. Start native process in executor
+        loop = asyncio.get_event_loop()
+        started, start_msg = await loop.run_in_executor(None, start_cloudflared, token)
 
-    if not started:
-        _update_state("failed", False, start_msg)
-        return
+        if not started:
+            _update_state("failed", False, start_msg)
+            return
 
-    # 3. Verify health
-    verified, verify_msg = await verify_cloudflared_health(timeout=30.0, poll_interval=1.0)
+        # 3. Verify health
+        verified, verify_msg = await verify_cloudflared_health(timeout=30.0, poll_interval=1.0)
 
-    if verified:
-        _update_state("ready", True, None)
-        logger.info("Cloudflared native tunnel is online and verified")
-    else:
-        _update_state("failed", False, verify_msg)
-        logger.warning("Cloudflared native tunnel could not be verified: %s", verify_msg)
+        if verified:
+            _update_state("ready", True, None)
+            logger.info("Cloudflared native tunnel is online and verified")
+        else:
+            _update_state("failed", False, verify_msg)
+            logger.warning("Cloudflared native tunnel could not be verified: %s", verify_msg)
 
 
 async def ensure_cloudflared_on_startup() -> None:
@@ -161,7 +187,7 @@ async def ensure_cloudflared_on_startup() -> None:
             creds = json.load(f)
 
         token = creds.get("cf_tunnel_token")
-        if token and creds.get("session_token"):
+        if token:
             logger.info("Startup: Found persisted pairing credentials, starting native cloudflared...")
             await start_tunnel_workflow(token)
         else:

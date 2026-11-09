@@ -218,3 +218,7 @@ class Token_Bucket_Rate_Limiter:
         """Async compatibility method for older callers."""
         allowed, _, _ = self.allow(identifier=identifier, cost=cost)
         return allowed
+
+    def clear(self) -> None:
+        """Clear the underlying store."""
+        self.store.clear()

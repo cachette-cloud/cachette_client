@@ -1,15 +1,20 @@
+import logging
 import math
 from uuid import UUID
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger("cachette.auth")
+
 from app.db.session import get_db
-from app.core.security import decode_token
+from app.core.jwks import jwks_manager
 from app.models.user import UserCache, DEFAULT_STORAGE_QUOTA_BYTES
 from app.service.s3_service import S3Service
+from app.service.pairing_service import get_owner_user_id
+from app.config import settings, get_current_node_id
 from app.core.rate_limiter import Token_Bucket_Rate_Limiter
-from app.config import settings
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -25,36 +30,138 @@ async def get_current_node_user(
     )
 
     if credentials is None:
+        logger.warning("get_current_node_user: No Authorization credentials header provided")
         raise credentials_exception
 
     token = credentials.credentials
-    payload = decode_token(token)
-    if not payload:
+    kid = None
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        if isinstance(unverified_header, dict):
+            kid = unverified_header.get("kid")
+    except Exception as e:
+        logger.warning("get_current_node_user: Failed to read unverified token header: %s", e)
+        raise credentials_exception
+
+    candidate_keys = jwks_manager.get_candidate_keys(kid=kid)
+    payload = None
+    last_err = None
+    for key in candidate_keys:
+        try:
+            payload = jwt.decode(token, key, algorithms=["RS256"], options={"verify_aud": False})
+            break
+        except Exception as e:
+            last_err = e
+            continue
+
+    if payload is None:
+        refreshed = await jwks_manager.refresh_if_needed()
+        if refreshed:
+            candidate_keys = jwks_manager.get_candidate_keys(kid=kid)
+            for key in candidate_keys:
+                try:
+                    payload = jwt.decode(token, key, algorithms=["RS256"], options={"verify_aud": False})
+                    break
+                except Exception as e:
+                    last_err = e
+                    continue
+
+    if payload is None:
+        logger.warning("get_current_node_user: RS256 token decode failed across %d candidate keys. Last error: %s", len(candidate_keys), last_err)
+        raise credentials_exception
+
+    logger.info("get_current_node_user: Decoded token payload: %s", payload)
+
+    # Contract claims: type in ("node_access", "access"), sub
+    token_type = payload.get("type")
+    if token_type not in ("node_access", "access"):
+        logger.warning("get_current_node_user: Token type claim is '%s' (expected 'node_access' or 'access')", token_type)
         raise credentials_exception
 
     sub = payload.get("sub")
     ver = payload.get("ver")
-    if sub is None or ver is None:
+    # For node_access tokens, ver is strictly required
+    if sub is None or (token_type == "node_access" and ver is None):
+        logger.warning("get_current_node_user: Token missing required sub=%s or ver=%s", sub, ver)
         raise credentials_exception
 
     try:
         user_uuid = UUID(str(sub))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning("get_current_node_user: Invalid UUID for sub '%s': %s", sub, e)
         raise credentials_exception
+
+    # Fail closed: node must be configured with node_id and owner_id
+    node_id = get_current_node_id()
+    owner_id = get_owner_user_id()
+    if not node_id or not owner_id:
+        logger.warning("get_current_node_user: Node configuration missing: node_id=%s, owner_id=%s", node_id, owner_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Node pairing or owner configuration missing",
+        )
+
+    token_aud = str(payload.get("aud", ""))
+    # If aud is pinned in token, verify it matches this node
+    if token_aud and token_aud != str(node_id):
+        logger.warning("get_current_node_user: Audience mismatch: token_aud='%s' != node_id='%s'", token_aud, node_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Token is for a different node",
+        )
+
+    # Resolve role (default to 'owner' if sub matches owner_id, else 'member')
+    role = payload.get("role")
+    if not role:
+        role = "owner" if str(user_uuid) == str(owner_id) else "member"
+
+    if role not in ("owner", "member"):
+        logger.warning("get_current_node_user: Invalid role claim: '%s'", role)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Invalid role claim",
+        )
+
+    if role == "owner" and str(user_uuid) != str(owner_id):
+        logger.warning("get_current_node_user: Owner sub '%s' != node owner_id '%s'", user_uuid, owner_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User is not the owner of this node",
+        )
+
+    # Read display name from token's name claim, fallback to "User"
+    display_name = payload.get("name") or "User"
 
     user_cache = await db.get(UserCache, user_uuid)
     if not user_cache:
         user_cache = UserCache(
             user_id=user_uuid,
-            display_name=payload.get("display_name") or payload.get("name") or "Node User",
+            display_name=display_name,
             storage_quota_bytes=DEFAULT_STORAGE_QUOTA_BYTES,
             storage_used=0,
         )
         db.add(user_cache)
         await db.commit()
         await db.refresh(user_cache)
+    elif payload.get("name") and user_cache.display_name != payload.get("name"):
+        user_cache.display_name = payload.get("name")
+        await db.commit()
+        await db.refresh(user_cache)
 
+    user_cache.role = role
     return user_cache
+
+
+async def require_owner(
+    current_user: UserCache = Depends(get_current_node_user),
+) -> UserCache:
+    """Dependency that restricts access strictly to the node owner."""
+    if getattr(current_user, "role", None) != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Node owner access required",
+        )
+    return current_user
 
 
 def get_s3_service() -> S3Service:
@@ -123,3 +230,32 @@ auth_limiter = Token_Bucket_Rate_Limiter(
     refill_rate=0.2,
     key_prefix="ratelimit:auth:ip",
 )
+
+
+# Rate limiter for tunnel restart operations (3 requests capacity, refill 0.05/sec -> 1 per 20s)
+tunnel_restart_limiter = Token_Bucket_Rate_Limiter(
+    capacity=3,
+    refill_rate=0.05,
+    key_prefix="ratelimit:tunnel:restart",
+)
+
+
+def is_localhost(request: Request) -> bool:
+    """
+    Check if a request originated purely on local loopback without passing through
+    Cloudflare Tunnel or external proxies.
+    """
+    if request.headers.get("cf-connecting-ip") or request.headers.get("cf-ray"):
+        return False
+    client_host = request.client.host if request.client else ""
+    return client_host in ("127.0.0.1", "::1", "localhost", "testclient")
+
+
+def require_localhost(request: Request) -> None:
+    """Dependency that restricts access strictly to direct local loopback connections."""
+    if not is_localhost(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Endpoint accessible only via local host",
+        )
+

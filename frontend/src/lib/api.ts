@@ -75,13 +75,16 @@ async function fetchApi<T>(
   });
 
   if (res.status === 401) {
+    console.warn(`[Cachette API] 401 Unauthorized on ${path}. Token present: ${Boolean(token)}`);
     notifySessionExpired();
     throw new ApiError(401, 'Session expired or invalid — please re-pair from central dashboard');
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail || 'Request failed');
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
+    throw new ApiError(res.status, body.detail || 'Request failed', retryAfter);
   }
 
   if (res.status === 204) return {} as T;
@@ -90,9 +93,11 @@ async function fetchApi<T>(
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  retryAfter?: number;
+  constructor(status: number, message: string, retryAfter?: number) {
     super(message);
     this.status = status;
+    this.retryAfter = retryAfter;
     this.name = 'ApiError';
   }
 }
@@ -102,6 +107,7 @@ export class ApiError extends Error {
 export interface UserCacheOut {
   user_id: string;
   display_name: string | null;
+  role?: 'owner' | 'member';
   storage_quota_bytes: number;
   storage_used: number;
 }
@@ -165,6 +171,10 @@ export async function apiGetNodeSession(): Promise<NodeSessionResponse> {
   return fetchApi<NodeSessionResponse>('/api/v1/node-pairing/session');
 }
 
+export async function apiGetMe(): Promise<UserCacheOut> {
+  return fetchApi<UserCacheOut>('/api/v1/me');
+}
+
 export async function apiGetPairingStatus(): Promise<{
   paired: boolean;
   tunnel_status?: string;
@@ -172,7 +182,7 @@ export async function apiGetPairingStatus(): Promise<{
   tunnel_error?: string | null;
   node_id?: string;
   subdomain?: string;
-  session_token_expires_at?: string;
+  tunnel_command?: string;
 }> {
   return fetchApi('/api/v1/node-pairing/status');
 }
@@ -189,8 +199,11 @@ export async function apiClaimPairing(
 ): Promise<{
   status: string;
   node_id?: string;
-  session_token_expires_at?: string;
   subdomain?: string;
+  session_token?: string;
+  token?: string;
+  session_token_expires_at?: string;
+  tunnel_command?: string;
 }> {
   return fetchApi('/api/v1/node-pairing/claim', {
     method: 'POST',
@@ -298,7 +311,7 @@ export async function apiInitiateUpload(
   contentType: string,
   folderId?: string | null,
 ): Promise<UploadInitiateResponse> {
-  return fetchApi<UploadInitiateResponse>('/api/v1/files/uploads/initate', {
+  return fetchApi<UploadInitiateResponse>('/api/v1/files/uploads/initiate', {
     method: 'POST',
     body: JSON.stringify({
       filename,

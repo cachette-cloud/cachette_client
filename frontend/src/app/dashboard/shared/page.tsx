@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useDashboard } from '@/lib/dashboard-context';
+import { useAuth } from '@/lib/auth-context';
 import {
   RiGroupLine,
   RiShareForwardLine,
@@ -10,6 +11,7 @@ import {
   RiExternalLinkLine,
   RiDownloadCloud2Line,
   RiFileLine,
+  RiShieldUserLine,
 } from 'react-icons/ri';
 
 function formatBytes(bytes: number): string {
@@ -20,6 +22,7 @@ function formatBytes(bytes: number): string {
 }
 
 export default function SharedPage() {
+  const { isOwner } = useAuth();
   const { allFiles, knownShares, downloadFile, openShareModal } = useDashboard();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -43,6 +46,13 @@ export default function SharedPage() {
           </p>
         </div>
       </div>
+
+      {!isOwner && (
+        <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[12.5px] flex items-center gap-2.5">
+          <RiShieldUserLine className="w-4 h-4 shrink-0" />
+          <p>Public link generation is restricted to the node owner. As a member, you have access to view shared resources and manage your personal files.</p>
+        </div>
+      )}
 
       {sharedFileEntries.length > 0 ? (
         <div className="border border-white/[0.06] rounded-2xl overflow-hidden bg-white/[0.01]">

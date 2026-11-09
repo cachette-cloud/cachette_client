@@ -1,6 +1,7 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,11 +9,22 @@ from app.db.session import get_db
 from app.models.user import UserCache, DEFAULT_STORAGE_QUOTA_BYTES
 from app.core.security import decode_token
 from app.service.pairing_service import claim_node_pairing, get_pairing_credentials
-from app.service.tunnel_service import get_tunnel_status, start_tunnel_workflow
-import asyncio
-from fastapi import HTTPException, status
+from app.service.tunnel_service import (
+    get_tunnel_status,
+    is_tunnel_restart_in_progress,
+    trigger_tunnel_restart,
+)
+from app.dependencies import (
+    require_localhost,
+    is_localhost,
+    tunnel_restart_limiter,
+    rate_limit,
+    get_client_ip,
+    get_current_node_user,
+)
 
 router = APIRouter(prefix="/node-pairing", tags=["node-pairing"])
+session_router = APIRouter(prefix="/node-pairing", tags=["node-pairing"])
 
 
 class PairingClaimRequest(BaseModel):
@@ -20,11 +32,12 @@ class PairingClaimRequest(BaseModel):
     central_url: Optional[str] = None
 
 
-@router.post("/claim")
+@router.post("/claim", dependencies=[Depends(require_localhost)])
 async def claim_pairing(body: PairingClaimRequest):
     """
     Trigger node pairing claim from central. Persists session_token, public_key,
     and bootstrap credentials locally, then triggers automated cloudflared startup.
+    Accessible only via local host.
     """
     return await claim_node_pairing(
         pairing_code=body.pairing_code,
@@ -33,16 +46,30 @@ async def claim_pairing(body: PairingClaimRequest):
 
 
 @router.get("/status")
-async def pairing_status():
-    """Check if node has persisted pairing credentials and report tunnel status."""
+async def pairing_status(request: Request):
+    """
+    Check if node has persisted pairing credentials and report tunnel status.
+    Non-local callers receive a sanitized subset of state: {paired, tunnel_ready}.
+    """
     creds = get_pairing_credentials()
     tunnel = get_tunnel_status()
-    if creds and creds.get("public_key") and creds.get("session_token"):
+    from app.config import settings
+    paired = bool(creds and creds.get("node_id") and (creds.get("public_key") or settings.PUBLIC_KEY))
+
+    # Non-local callers receive sanitized status including node_id and subdomain
+    if not is_localhost(request):
+        return {
+            "paired": paired,
+            "node_id": creds.get("node_id") if creds else None,
+            "subdomain": creds.get("subdomain") if creds else None,
+            "tunnel_ready": True if paired else tunnel.get("ready", False),
+        }
+
+    if paired:
         return {
             "paired": True,
             "node_id": creds.get("node_id"),
             "subdomain": creds.get("subdomain"),
-            "session_token_expires_at": creds.get("session_token_expires_at"),
             "tunnel_status": tunnel.get("status", "unpaired"),
             "tunnel_ready": tunnel.get("ready", False),
             "tunnel_error": tunnel.get("error"),
@@ -50,64 +77,6 @@ async def pairing_status():
         }
     return {
         "paired": False,
-        "tunnel_status": "unpaired",
-        "tunnel_ready": False,
-        "tunnel_error": None,
-        "tunnel_command": "Managed natively by Cachette supervisor",
-    }
-
-
-@router.get("/session")
-async def get_node_session(db: AsyncSession = Depends(get_db)):
-    """
-    Return the active node pairing session, including the session_token,
-    expiration, read-only UserCache details, and cloudflared tunnel lifecycle status.
-    """
-    creds = get_pairing_credentials()
-    tunnel = get_tunnel_status()
-    if not creds or not creds.get("public_key") or not creds.get("session_token"):
-        return {
-            "paired": False,
-            "tunnel_status": "unpaired",
-            "tunnel_ready": False,
-            "tunnel_error": None,
-        }
-
-    session_token = creds.get("session_token")
-    user_data = None
-
-    payload = decode_token(session_token) if session_token else None
-    if payload and payload.get("sub"):
-        try:
-            user_uuid = uuid.UUID(str(payload["sub"]))
-            user = await db.get(UserCache, user_uuid)
-            if not user:
-                user = UserCache(
-                    user_id=user_uuid,
-                    display_name=payload.get("display_name") or payload.get("name") or "Node Owner",
-                    storage_quota_bytes=DEFAULT_STORAGE_QUOTA_BYTES,
-                    storage_used=0,
-                )
-                db.add(user)
-                await db.commit()
-                await db.refresh(user)
-
-            user_data = {
-                "user_id": str(user.user_id),
-                "display_name": user.display_name,
-                "storage_quota_bytes": user.storage_quota_bytes,
-                "storage_used": user.storage_used,
-            }
-        except Exception:
-            pass
-
-    return {
-        "paired": True,
-        "node_id": creds.get("node_id"),
-        "subdomain": creds.get("subdomain"),
-        "session_token": session_token,
-        "session_token_expires_at": creds.get("session_token_expires_at"),
-        "user": user_data,
         "tunnel_status": tunnel.get("status", "unpaired"),
         "tunnel_ready": tunnel.get("ready", False),
         "tunnel_error": tunnel.get("error"),
@@ -115,7 +84,45 @@ async def get_node_session(db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.post("/tunnel/restart")
+@session_router.get("/session")
+async def get_node_session(
+    request: Request,
+    current_user: UserCache = Depends(get_current_node_user),
+):
+    """
+    Return active node pairing session metadata and tunnel status.
+    Requires verified node_access Bearer token.
+    """
+    creds = get_pairing_credentials()
+    tunnel = get_tunnel_status()
+    is_remote = not is_localhost(request)
+    tunnel_ready = True if is_remote else tunnel.get("ready", False)
+    tunnel_status = "ready" if tunnel_ready else tunnel.get("status", "unpaired")
+
+    return {
+        "paired": True,
+        "node_id": creds.get("node_id") if creds else None,
+        "subdomain": creds.get("subdomain") if creds else None,
+        "user": {
+            "user_id": str(current_user.user_id),
+            "display_name": current_user.display_name,
+            "role": getattr(current_user, "role", "member"),
+            "storage_quota_bytes": current_user.storage_quota_bytes,
+            "storage_used": current_user.storage_used,
+        },
+        "tunnel_status": tunnel_status,
+        "tunnel_ready": tunnel_ready,
+        "tunnel_error": tunnel.get("error"),
+    }
+
+
+@router.post(
+    "/tunnel/restart",
+    dependencies=[
+        Depends(require_localhost),
+        Depends(rate_limit(tunnel_restart_limiter, get_client_ip)),
+    ],
+)
 async def restart_tunnel():
     """Manually retry or restart the cloudflared tunnel container."""
     creds = get_pairing_credentials()
@@ -124,5 +131,20 @@ async def restart_tunnel():
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Node is not paired with a Cloudflare tunnel token",
         )
-    asyncio.create_task(start_tunnel_workflow(creds["cf_tunnel_token"]))
+
+    if is_tunnel_restart_in_progress():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tunnel restart already in progress",
+        )
+
+    try:
+        trigger_tunnel_restart(creds["cf_tunnel_token"])
+    except RuntimeError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tunnel restart already in progress",
+        )
+
     return {"status": "starting", "message": "Cloudflared tunnel restart triggered"}
+

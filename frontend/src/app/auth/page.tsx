@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiClaimPairing } from "@/lib/api";
-import ShapeBlur from "@/components/ui/ShapeBlur";
+import { apiClaimPairing, setSessionToken } from "@/lib/api";
 import CodeSlots from "@/components/ui/CodeSlots";
 import LineWaves from "@/components/ui/LineWaves";
 import { motion, AnimatePresence } from "motion/react";
@@ -13,8 +13,12 @@ import {
   RiErrorWarningLine,
   RiClipboardLine,
   RiCheckLine,
-  RiRestartLine,
   RiArrowRightLine,
+  RiArrowLeftLine,
+  RiKeyLine,
+  RiKey2Line,
+  RiShieldCheckLine,
+  RiExternalLinkLine,
 } from "react-icons/ri";
 
 const CENTRAL_URL =
@@ -27,10 +31,10 @@ export default function SleekAuthPage() {
     isLoading: authLoading,
     isAuthenticated,
     isSessionExpired,
-    tunnelStatus,
-    tunnelError,
-    restartTunnel,
+    nodeInfo,
+    isLocalhost,
     refreshSession,
+    loginWithToken,
   } = useAuth();
 
   const [connectionCode, setConnectionCode] = useState("");
@@ -38,21 +42,35 @@ export default function SleekAuthPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
-  const [retryingTunnel, setRetryingTunnel] = useState(false);
+  const [manualToken, setManualToken] = useState("");
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [repairMode, setRepairMode] = useState(false);
 
-  // Redirect to dashboard immediately if authenticated
+  // Subdomain & Edge URL calculation
+  const subdomain =
+    nodeInfo?.subdomain ||
+    (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1"
+      ? window.location.hostname.split(".")[0]
+      : "node");
+  const edgeDomain = `${subdomain}.cachette.cloud`;
+  const edgeUrl = `https://${edgeDomain}`;
+  const shortNodeId = nodeInfo?.node_id
+    ? nodeInfo.node_id.replace(/-/g, "").slice(0, 8)
+    : "9295d8b7";
+
+  // When accessing via Cloudflare tunnel, if authenticated, route immediately to dashboard
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (!authLoading && isAuthenticated && !isLocalhost) {
       router.push("/dashboard");
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, isLocalhost, router]);
 
-  // Periodic heartbeat session sync
+  // Periodic session refresh
   useEffect(() => {
     if (isAuthenticated) return;
     const interval = setInterval(() => {
       refreshSession();
-    }, 3000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [isAuthenticated, refreshSession]);
 
@@ -65,19 +83,14 @@ export default function SleekAuthPage() {
       setErrorMessage(null);
 
       try {
-        await apiClaimPairing(cleanCode);
+        const claimRes = await apiClaimPairing(cleanCode);
+        const token = claimRes.session_token || claimRes.token;
+        if (token) {
+          setSessionToken(token, claimRes.session_token_expires_at);
+        }
         setSlotStatus("success");
-        const session = await refreshSession();
-        setTimeout(() => {
-          if (
-            session?.paired &&
-            (session?.tunnel_ready || session?.tunnel_status === "ready")
-          ) {
-            router.push("/dashboard");
-          } else {
-            router.push("/dashboard");
-          }
-        }, 700);
+        await refreshSession();
+        setRepairMode(false);
       } catch (err: unknown) {
         setSlotStatus("error");
         const msg =
@@ -91,7 +104,7 @@ export default function SleekAuthPage() {
         setSubmitting(false);
       }
     },
-    [refreshSession, router]
+    [refreshSession]
   );
 
   const handleCodeChange = (code: string) => {
@@ -117,13 +130,16 @@ export default function SleekAuthPage() {
     }
   };
 
-  const handleRetryTunnel = async () => {
-    setRetryingTunnel(true);
-    try {
-      await restartTunnel();
-    } finally {
-      setRetryingTunnel(false);
-    }
+  const handleSignInWithCentral = () => {
+    if (typeof window === "undefined") return;
+    const origin = window.location.origin;
+    const redirectUrl = encodeURIComponent(`${origin}/auth/callback`);
+    window.location.href = `${CENTRAL_URL}/login?redirect=${redirectUrl}&node_id=${nodeInfo?.node_id || ""}`;
+  };
+
+  const handleOpenEdgeLink = () => {
+    if (typeof window === "undefined") return;
+    window.location.href = edgeUrl;
   };
 
   return (
@@ -144,111 +160,250 @@ export default function SleekAuthPage() {
           clickRipple={false}
           intro={false}
         />
-        {/* Subtle vignette darkening towards edges */}
         <div className="absolute inset-0 bg-radial from-transparent via-[#050507]/60 to-[#050507]" />
       </div>
 
-      {/* ── Center Sleek Modal / Panel (Inspired by image) ── */}
+      {/* ── Top-Left PORTAL Back Link (Image 2) ── */}
+      {!isLocalhost && isPaired && !repairMode && !showTokenInput && (
+        <a
+          href={CENTRAL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute top-5 left-5 sm:top-7 sm:left-7 z-20 px-3.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/10 border border-white/10 text-[11.5px] font-mono text-zinc-300 hover:text-white transition-colors flex items-center gap-1.5 shadow-lg backdrop-blur-md"
+        >
+          <RiArrowLeftLine className="w-3.5 h-3.5" />
+          <span>PORTAL</span>
+        </a>
+      )}
+
+      {/* ── Center Card Panel ── */}
       <motion.div
         initial={{ opacity: 0, y: 16, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 w-full max-w-[400px] sm:max-w-[420px] rounded-[32px] p-7 sm:p-9 bg-[#0b0b0e]/95 backdrop-blur-2xl border border-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.85)] flex flex-col items-center"
+        className="relative z-10 w-full max-w-[420px] rounded-[32px] p-7 sm:p-9 bg-[#0b0b0e]/95 backdrop-blur-2xl border border-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.85)] flex flex-col items-center"
       >
-        {/* Top Circular Graphic Area with ShapeBlur Logo Effect */}
-        <div className="relative w-44 h-44 sm:w-48 sm:h-48 rounded-full overflow-hidden border border-white/[0.09] bg-[#020203] shadow-[inset_0_0_28px_rgba(0,0,0,0.95)] flex items-center justify-center">
-          <ShapeBlur
-            src="/logo.png"
-            size={0.65}
-            fill={true}
-            color="#ffffff"
-            blur={15}
-            lensSize={0.3}
-            lensSoftness={0.7}
-            chroma={0.12}
-            idle={true}
-            className="w-full h-full"
-          />
+        {/* Subtle Diagonal Cut Line Accent at Top-Right */}
+        <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none overflow-hidden rounded-tr-[32px]">
+          <div className="absolute -top-8 -right-8 w-16 h-16 border-b border-l border-white/[0.08] rotate-45 bg-white/[0.01]" />
         </div>
 
-        {/* Title & Subtitle */}
-        <h1 className="text-[25px] sm:text-[27px] font-semibold text-white tracking-tight mt-6 text-center">
-          Enter the code
+        {/* ── Overlapping Circular Badges (Purple Shield + Lime Key) ── */}
+        <div className="relative flex items-center justify-center my-1">
+          <div className="absolute inset-0 bg-[#8116E0]/20 blur-2xl rounded-full pointer-events-none" />
+          {/* Purple Circle with Shield */}
+          <div className="relative z-10 w-12 h-12 rounded-full bg-[#8116E0] border border-white/20 flex items-center justify-center text-white shadow-[0_4px_16px_rgba(129,22,224,0.4)]">
+            <RiShieldCheckLine className="w-5 h-5" />
+          </div>
+          {/* Yellow-Green Circle with Key (Overlapping) */}
+          <div className="relative z-20 -ml-3.5 w-12 h-12 rounded-full bg-[#D0FF00] border border-black/20 flex items-center justify-center text-black shadow-[0_4px_16px_rgba(208,255,0,0.4)]">
+            <RiKey2Line className="w-5 h-5 -rotate-45" />
+          </div>
+        </div>
+
+        {/* ── Card Header (Title & Subtitle) ── */}
+        <h1 className="text-[24px] sm:text-[26px] font-semibold text-white tracking-tight mt-4 text-center">
+          {showTokenInput
+            ? "Enter Node Access Token"
+            : !isPaired || repairMode
+            ? "Enter Pairing Code"
+            : isLocalhost
+            ? "Node Paired"
+            : "Node Authentication"}
         </h1>
-        <p className="text-[13px] text-zinc-400 text-center max-w-[280px] mt-2 leading-relaxed font-normal">
-          We sent you a code to your email, please enter to verify your address.
+
+        <p className="text-[12.5px] text-zinc-400 text-center max-w-[310px] mt-1.5 leading-relaxed font-normal">
+          {showTokenInput
+            ? "Paste your Central RS256 node_access JWT Bearer token below."
+            : !isPaired || repairMode
+            ? "Enter the 6-character node pairing code generated in your Cachette Central console."
+            : isLocalhost
+            ? "Your node is configured and running natively on this machine."
+            : "Node is paired. Sign in with Central to access your node."}
         </p>
 
-        {/* ── Tunnel Starting View ── */}
-        {isPaired && !isSessionExpired && tunnelStatus === "starting" && (
-          <div className="w-full mt-6 space-y-3">
-            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center space-y-2">
-              <div className="flex justify-center">
-                <RiLoader4Line className="w-5 h-5 text-zinc-300 animate-spin" />
-              </div>
-              <div className="text-[13px] font-medium text-white">
-                Launching Tunnel Bridge...
-              </div>
-              <p className="text-[11px] text-zinc-500 font-mono">
-                Syncing keys with central orchestrator
-              </p>
-            </div>
-
-            <button
-              onClick={() => router.push("/dashboard")}
-              type="button"
-              className="w-full h-11 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-[13px] font-medium flex items-center justify-center transition-colors"
-            >
-              Enter Local Dashboard
-            </button>
+        {/* ── Status Pill Badge ── */}
+        {isPaired && !repairMode && !showTokenInput && (
+          <div className="mt-3.5 flex items-center gap-2 px-3.5 py-1 rounded-full bg-black/60 border border-white/[0.08] backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-[#D0FF00] shadow-[0_0_8px_#D0FF00]" />
+            <span className="text-[11px] font-mono font-bold tracking-wider text-[#D0FF00]">
+              NODE ONLINE
+            </span>
+            <span className="text-zinc-600 text-[10px]">•</span>
+            <span className="text-[11px] font-mono text-zinc-400">
+              {isLocalhost ? `ID: ${shortNodeId}` : "Cluster encrypted"}
+            </span>
           </div>
         )}
 
-        {/* ── Tunnel Failed View ── */}
-        {isPaired && !isSessionExpired && tunnelStatus === "failed" && (
-          <div className="w-full mt-6 space-y-3">
-            <div className="p-3.5 rounded-2xl bg-red-950/20 border border-red-900/30 text-center space-y-1">
-              <div className="flex items-center justify-center gap-1.5 text-red-400 text-[12px] font-medium">
-                <RiErrorWarningLine className="w-4 h-4" />
-                <span>Tunnel Bridge Offline</span>
-              </div>
-              <p className="text-[11px] text-zinc-400 font-mono truncate px-2">
-                {tunnelError || "Check network connection"}
+        {/* ── Error Banner ── */}
+        <AnimatePresence>
+          {errorMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="w-full mt-4 text-[12px] text-red-300 bg-red-500/15 border border-red-500/25 rounded-2xl p-3 flex items-start gap-2.5"
+            >
+              <RiErrorWarningLine className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
+              <span>{errorMessage}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ─────────────────────────────────────────────────────────── */}
+        {/* VIEW 1: LOCALHOST PAIRED STATE (Image 1)                    */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        {isPaired && isLocalhost && !repairMode && !showTokenInput && (
+          <div className="w-full mt-6 space-y-4">
+            {/* Inner Dark Card */}
+            <div className="w-full rounded-2xl bg-black/40 border border-white/[0.08] p-5 text-center space-y-1.5">
+              <h3 className="text-[14px] font-medium text-white">Node Online</h3>
+              <p className="text-[12.5px] text-zinc-400 leading-relaxed">
+                Tunnel active on{" "}
+                <span className="text-[#22c55e] font-mono font-medium">
+                  {edgeDomain}
+                </span>
+                . All users sign in through your edge link.
               </p>
             </div>
 
+            {/* Big Emerald Green CTA Button */}
             <button
-              onClick={handleRetryTunnel}
-              disabled={retryingTunnel}
+              onClick={handleOpenEdgeLink}
               type="button"
-              className="w-full h-11 rounded-2xl bg-white hover:bg-zinc-200 text-black font-medium text-[13px] flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+              className="w-full h-12 rounded-2xl bg-[#22c55e] hover:bg-[#16a34a] text-black font-semibold text-[13.5px] flex items-center justify-center gap-2 transition-all shadow-[0_0_24px_rgba(34,197,94,0.35)] hover:shadow-[0_0_32px_rgba(34,197,94,0.5)] cursor-pointer"
             >
-              {retryingTunnel ? (
-                <>
-                  <RiLoader4Line className="w-4 h-4 animate-spin" />
-                  <span>Retrying Bridge...</span>
-                </>
-              ) : (
-                <>
-                  <RiRestartLine className="w-4 h-4" />
-                  <span>Restart Tunnel</span>
-                </>
-              )}
+              <span>Open Your Node</span>
+              <RiArrowRightLine className="w-4 h-4" />
             </button>
 
-            <button
-              onClick={() => router.push("/dashboard")}
-              type="button"
-              className="w-full text-center text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              Continue locally without tunnel
-            </button>
+            {/* Muted Secondary Developer Links */}
+            <div className="flex items-center justify-between pt-1 px-1 text-[11px] font-mono text-zinc-500">
+              <button
+                type="button"
+                onClick={() => router.push("/dashboard")}
+                className="hover:text-zinc-300 transition-colors flex items-center gap-1"
+              >
+                <span>Enter local dashboard</span>
+                <RiArrowRightLine className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setRepairMode(true)}
+                className="hover:text-zinc-300 transition-colors"
+              >
+                Re-pair Node
+              </button>
+            </div>
           </div>
         )}
 
-        {/* ── Primary Auth State: Code Slots ── */}
-        {(!isPaired || isSessionExpired) && (
-          <div className="w-full mt-7 flex flex-col items-center">
+        {/* ─────────────────────────────────────────────────────────── */}
+        {/* VIEW 2: REMOTE CLOUD / EDGE TUNNEL AUTH (Image 2)            */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        {isPaired && !isLocalhost && !repairMode && !showTokenInput && (
+          <div className="w-full mt-6 space-y-4">
+            {/* Inner Dark Card */}
+            <div className="w-full rounded-2xl bg-black/40 border border-white/[0.08] p-5 text-center space-y-1.5">
+              <h3 className="text-[14px] font-medium text-white">
+                Central Sign-In Required
+              </h3>
+              <p className="text-[12.5px] text-zinc-400 leading-relaxed">
+                This node is paired and secured. Sign in with your Central account
+                to access your node.
+              </p>
+            </div>
+
+            {/* Big Vibrant Purple CTA Button */}
+            <button
+              onClick={handleSignInWithCentral}
+              type="button"
+              className="w-full h-12 rounded-2xl bg-gradient-to-r from-[#9333ea] to-[#7c3aed] hover:from-[#8b5cf6] hover:to-[#6d28d9] text-white font-semibold text-[13.5px] flex items-center justify-center gap-2 transition-all shadow-[0_0_28px_rgba(147,51,234,0.45)] hover:shadow-[0_0_36px_rgba(147,51,234,0.65)] cursor-pointer"
+            >
+              <span>Sign in with Central</span>
+              <RiArrowRightLine className="w-4 h-4" />
+            </button>
+
+            {/* Muted Secondary Manual Entry Link */}
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTokenInput(true);
+                  setErrorMessage(null);
+                }}
+                className="text-[11px] font-mono text-zinc-500 hover:text-zinc-300 underline underline-offset-4 transition-colors"
+              >
+                Paste access token
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────────────────────────────────────────────────── */}
+        {/* VIEW 3: MANUAL TOKEN ENTRY MODAL                            */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        {showTokenInput && (
+          <div className="w-full mt-6 space-y-3">
+            <textarea
+              value={manualToken}
+              onChange={(e) => {
+                setManualToken(e.target.value);
+                if (errorMessage) setErrorMessage(null);
+              }}
+              rows={4}
+              placeholder="Paste your node_access JWT Bearer token here..."
+              className="w-full p-3 bg-black/50 border border-white/10 rounded-2xl text-[12px] font-mono text-white placeholder-zinc-500 outline-none focus:border-white/30 resize-none"
+            />
+            <button
+              type="button"
+              disabled={!manualToken.trim() || submitting}
+              onClick={async () => {
+                setSubmitting(true);
+                setErrorMessage(null);
+                try {
+                  const success = await loginWithToken(manualToken.trim());
+                  if (success) {
+                    router.push("/dashboard");
+                  } else {
+                    setErrorMessage(
+                      "Invalid token or audience mismatch. Verify that the token was issued for this node."
+                    );
+                  }
+                } catch (e) {
+                  setErrorMessage(
+                    e instanceof Error ? e.message : "Authentication failed"
+                  );
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+              className="w-full h-11 rounded-xl bg-white hover:bg-zinc-200 text-black text-[12.5px] font-medium flex items-center justify-center transition-colors disabled:opacity-40"
+            >
+              {submitting ? "Verifying Token..." : "Authenticate Token"}
+            </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTokenInput(false);
+                  setErrorMessage(null);
+                }}
+                className="text-[11.5px] text-zinc-500 hover:text-zinc-300 transition-colors font-mono underline underline-offset-4"
+              >
+                ← Back
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────────────────────────────────────────────────── */}
+        {/* VIEW 4: CODE SLOTS PAIRING (Initial Setup or Re-pair Mode)  */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        {(!isPaired || repairMode) && !showTokenInput && (
+          <div className="w-full mt-6 flex flex-col items-center">
             {/* React Bits <CodeSlots /> */}
             <div className="flex justify-center">
               <CodeSlots
@@ -273,23 +428,8 @@ export default function SleekAuthPage() {
               />
             </div>
 
-            {/* Error Message */}
-            <AnimatePresence>
-              {errorMessage && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  className="mt-3 text-[11.5px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-1.5 flex items-center gap-1.5 text-center"
-                >
-                  <RiErrorWarningLine className="w-3.5 h-3.5 shrink-0 text-red-400" />
-                  <span>{errorMessage}</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Submitting Feedback or Manual Action Bar */}
-            <div className="mt-4 flex items-center gap-3">
+            {/* Action Bar */}
+            <div className="mt-5 flex items-center gap-3">
               {submitting ? (
                 <div className="flex items-center gap-2 text-[12px] text-zinc-400 font-mono py-1">
                   <RiLoader4Line className="w-3.5 h-3.5 animate-spin text-zinc-200" />
@@ -328,29 +468,37 @@ export default function SleekAuthPage() {
                 </>
               )}
             </div>
+
+            {/* Footer Links */}
+            <div className="pt-3 text-center">
+              {repairMode ? (
+                <button
+                  type="button"
+                  onClick={() => setRepairMode(false)}
+                  className="text-[11px] font-mono text-zinc-500 hover:text-zinc-300 underline underline-offset-4"
+                >
+                  ← Cancel re-pairing
+                </button>
+              ) : (
+                <a
+                  href={CENTRAL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] font-mono text-zinc-400 hover:text-zinc-200 transition-colors"
+                >
+                  <span>Need a pairing code? Open Central</span>
+                  <RiExternalLinkLine className="w-3 h-3" />
+                </a>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Footer: "Need Help? Contact us" matching the image */}
-        <div className="mt-8 pt-2 text-center">
-          <p className="text-[12.5px] text-zinc-500">
-            Need Help?{" "}
-            <a
-              href={CENTRAL_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-zinc-300 hover:text-white underline underline-offset-4 transition-colors font-medium"
-            >
-              Contact us
-            </a>
-          </p>
-        </div>
-
-        {/* Bottom subtle metadata */}
-        <div className="mt-6 pt-4 border-t border-white/[0.05] w-full flex items-center justify-between text-[10px] font-mono text-zinc-600">
+        {/* ── Card Bottom Footer Metadata ── */}
+        <div className="mt-8 pt-4 border-t border-white/[0.05] w-full flex items-center justify-between text-[10px] font-mono text-zinc-500">
           <span>CACHETTE PROTOCOL</span>
-          <span className="flex items-center gap-1.5 text-zinc-500">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+          <span className="flex items-center gap-1.5 text-zinc-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#D0FF00] shadow-[0_0_6px_#D0FF00]" />
             ENCLAVE SECURE
           </span>
         </div>
